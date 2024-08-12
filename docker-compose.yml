@@ -1,0 +1,21 @@
+version: '3'
+services:
+  cryostat_control:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: cryostat-control
+    volumes:
+      - ./data:/app/data
+    networks:
+      - default
+      # - nginx-net
+    restart: unless-stopped
+    command: /app/run_server.sh
+    ports:
+      - "5000:5000"
+
+# networks:
+#   nginx-net:
+#     external:
+#       name: nginx-net
