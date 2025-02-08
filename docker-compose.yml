@@ -1,21 +1,29 @@
-version: '3'
+version: "3"
 services:
-  cryostat_control:
+  backend:
     build:
-      context: .
-      dockerfile: Dockerfile
-    container_name: cryostat-control
-    volumes:
-      - ./data:/app/data
-    networks:
-      - default
-      # - nginx-net
-    restart: unless-stopped
-    command: /app/run_server.sh
+      context: ./backend
+      dockerfile: Dockerfile.backend
+    container_name: cryostat-backend
     ports:
-      - "5000:5000"
+      - "8000:8000"  # Expose FastAPI on port 8000
+    networks:
+      - cryostat-net
+    restart: unless-stopped
 
-# networks:
-#   nginx-net:
-#     external:
-#       name: nginx-net
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.frontend
+    container_name: cryostat-frontend
+    depends_on:
+      - backend  # Ensure backend starts first
+    ports:
+      - "8501:8501"  # Expose Streamlit on port 8501
+    networks:
+      - cryostat-net
+    restart: unless-stopped
+
+networks:
+  cryostat-net:
+    driver: bridge
