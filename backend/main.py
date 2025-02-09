@@ -4,6 +4,9 @@ import uvicorn
 import json
 from status_and_setting_utils import *
 from setter_utils import *
+import logging
+
+logging.basicConfig(level=logging.WARNING)
 
 app = FastAPI(title="Cryostat Control API", description="Backend API for controlling the Lake Shore Model 335.")
 
@@ -62,20 +65,18 @@ async def websocket_set_heater(websocket: WebSocket):
     try:
         while True:
             data = await websocket.receive_json()
-            logging.debug(f"Received data: {data}")
-
-            if 'heater_state' in data:
-                if data['heater_state'] == 'on':
-                    pass
-                elif data['heater_state'] == 'off':
-                    cryo.all_heaters_off()
+            logging.warning(f"Received data: {data}")
             
             if 'pid_gain' in data and 'pid_integral' in data and 'pid_ramp_rate' in data:
                 set_pid_values(cryo, 1, data['pid_gain'], data['pid_integral'], data['pid_ramp_rate'])
-            
-            if 'heater_resistance' in data and 'max_current' in data and 'display_settings' in data:
-                set_heater_settings(cryo, data['heater_resistance'], data['max_current'], data['display_settings'])
-            
+            else:
+                logging.warning("Recieved invalid message for set_pid_values")
+
+            if 'heater_resistance' in data and 'max_current' in data and 'heater_range' in data:
+                set_heater_settings(cryo, 1, data['heater_resistance'], data['max_current'], data['heater_range'])
+            else:
+                logging.warning("Recieved invalid message for set_heater_settings")
+
             await websocket.send_text(json.dumps({"status": "settings updated"}))
     except WebSocketDisconnect:
         print("Client disconnected")

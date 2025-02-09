@@ -7,6 +7,8 @@ import dash_bootstrap_components as dbc
 from dash.dependencies import Input, Output, State
 import logging
 from datetime import datetime
+import pandas as pd
+from dash import dash_table
 
 # logging.basicConfig(level=logging.INFO)
 logging.basicConfig(level=logging.DEBUG)
@@ -31,60 +33,112 @@ NAVBAR = dbc.Navbar([
     className="mb-4",
 )
 
+PARAMETERS = [
+    dbc.Row([
+        dbc.Label("PID Gain", width=4),
+        dbc.Col(
+            dbc.Input(
+                id="pid-gain", type="number", placeholder="Enter PID Gain"
+            ),
+            width=8,
+        ),
+    ], className="mb-3"),
+    dbc.Row([
+        dbc.Label("PID Integral", width=4),
+        dbc.Col(
+            dbc.Input(id="pid-integral", type="number", placeholder="Enter PID Integral"),
+            width=8,
+        ),
+    ], className="mb-3"),
+    dbc.Row([
+        dbc.Label("PID Ramp Rate (Derivative)", width=4),
+        dbc.Col(
+            dbc.Input(id="pid-ramp-rate", type="number", placeholder="Enter PID Ramp Rate"),
+            width=8,
+        ),
+    ], className="mb-3"),
+    dbc.Row([
+        dbc.Label("Heater Resistance", width=4),
+        dbc.Col(
+            dbc.Input(id="heater-resistance", type="number", placeholder="Enter Heater Resistance"),
+            width=8,
+        ),
+    ], className="mb-3"),
+    dbc.Row([
+        dbc.Label("Max Current", width=4),
+        dbc.Col(
+            dbc.Input(id="max-current", type="number", placeholder="Enter Max Current"),
+            width=8,
+        ),
+    ], className="mb-3"),
+    dbc.Row([
+        dbc.Label("Heater Range", width=4),
+        dbc.Col(
+            dbc.Select(
+                id="heater-range",
+                options=[
+                    {"label": "Off", "value": "off"},
+                    {"label": "Low", "value": "low"},
+                    {"label": "Medium", "value": "medium"},
+                    {"label": "High", "value": "high"}
+                ],
+                value="",
+            ),
+            width=8,
+        ),
+    ], className="mb-3"),
+    dbc.Button("Set Parameters", id="set-parameters-button", color="primary", className="mt-2"),
+    dbc.Button("Get Current Values", id="get-current-values-button", color="secondary", className="mt-2 me-2"),
+]
+
+df = pd.DataFrame({
+    'Sensor Units': ['K', 'K', 'K'],
+    'Temp Value': [293.0, 295.0, 293.0],
+    'Curvature Value (Optional)': [None, None, None],
+})
+
+editable_table = dash_table.DataTable(
+    id='editable-table',
+    columns=[
+        {'name': 'Sensor Units', 'id': 'Sensor Units', 'editable': True},
+        {'name': 'Temp Value', 'id': 'Temp Value', 'editable': True},
+        {'name': 'Curvature Value (Optional)', 'id': 'Curvature Value (Optional)', 'editable': True},
+    ],
+    data=df.to_dict('records'),
+    editable=True
+)
+# Button to add new rows
+add_row_button = dbc.Button("Add Row", id="add-row-button", color="success", className="mt-2")
+
+# Callback to add new rows to the table
+@app.callback(
+    Output('editable-table', 'data'),
+    Input('add-row-button', 'n_clicks'),
+    State('editable-table', 'data'),
+    State('editable-table', 'columns'),
+    prevent_initial_call=True
+)
+def add_row(n_clicks, rows, columns):
+    if n_clicks is None:
+        return rows
+    new_row = {c['id']: '' for c in columns}
+    rows.append(new_row)
+    return rows
+
+# Add the button to the layout
+editable_table_with_button = html.Div([
+    editable_table,
+    add_row_button
+])
+
 INPUT_CARD = dbc.Card([
     dbc.CardHeader("Parameters"),
     dbc.CardBody([
-        dbc.Row([
-            dbc.Label("PID Gain", width=4),
-            dbc.Col(
-                dbc.Input(
-                    id="pid-gain", type="number", placeholder="Enter PID Gain"
-                ),
-                width=8,
-            ),
-        ], className="mb-3"),
-        dbc.Row([
-            dbc.Label("PID Integral", width=4),
-            dbc.Col(
-                dbc.Input(id="pid-integral", type="number", placeholder="Enter PID Integral"),
-                width=8,
-            ),
-        ], className="mb-3"),
-        dbc.Row([
-            dbc.Label("PID Ramp Rate (Derivative)", width=4),
-            dbc.Col(
-                dbc.Input(id="pid-ramp-rate", type="number", placeholder="Enter PID Ramp Rate"),
-                width=8,
-            ),
-        ], className="mb-3"),
-        dbc.Row([
-            dbc.Label("Heater State", width=4),
-            dbc.Col(
-                dbc.Checklist(
-                    options=[{"label": "Allow Heater On", "value": "on"}],
-                    value=[],
-                    id="heater-state",
-                    switch=True,
-                ),
-                width=8,
-            ),
-        ], className="mb-3"),
-        dbc.Row([
-            dbc.Label("Heater Resistance", width=4),
-            dbc.Col(
-                dbc.Input(id="heater-resistance", type="number", placeholder="Enter Heater Resistance"),
-                width=8,
-            ),
-        ], className="mb-3"),
-        dbc.Row([
-            dbc.Label("Max Current", width=4),
-            dbc.Col(
-                dbc.Input(id="max-current", type="number", placeholder="Enter Max Current"),
-                width=8,
-            ),
-        ], className="mb-3"),
-        dbc.Button("Set Parameters", id="set-parameters-button", color="primary", className="mt-2"),
-        dbc.Button("Get Current Values", id="get-current-values-button", color="secondary", className="mt-2 me-2"),
+        dbc.Container(PARAMETERS),
+        #Horizontal Line
+        html.Hr(),
+        #Editable Table
+        editable_table_with_button,
     ])
 ])
 
@@ -157,6 +211,7 @@ def update_status(n_intervals, message, temp_history):
     temperature_data = data.get("temperature")
     heater_output_data = data.get("heater_output")
     pid_data = data.get("pid")
+    heater_range = data.get("heater_range")
 
     sensor_1 = temperature_data.get("sensor_1")
     sensor_2 = temperature_data.get("sensor_2")
@@ -174,7 +229,10 @@ def update_status(n_intervals, message, temp_history):
         "heater_output": heater_output_data,
         "pid": pid_data,
         "time": current_time,
+        "heater_range": heater_range,
     }
+
+    # logging.debug(f"Setting Current State {curr_state}")
 
     # Append the temperature and timestamp as a dict
     temp_history.append({
@@ -235,18 +293,18 @@ def update_status(n_intervals, message, temp_history):
     State("pid-gain", "value"),
     State("pid-integral", "value"),
     State("pid-ramp-rate", "value"),
-    State("heater-state", "value"),
     State("heater-resistance", "value"),
     State("max-current", "value"),
+    State("heater-range", "value"),
     prevent_initial_call=True
 )
 def set_heater_state(n_clicks,
                     pid_gain,
                     pid_integral,
                     pid_ramp_rate,
-                    heater_state,
                     heater_resistance,
-                    max_current):
+                    max_current,
+                    heater_range):
     """Send the heater state to the backend."""
     if n_clicks is None:
         return {}
@@ -255,9 +313,9 @@ def set_heater_state(n_clicks,
         "pid_gain": pid_gain,
         "pid_integral": pid_integral,
         "pid_ramp_rate": pid_ramp_rate,
-        "heater_state": "on" if "on" in heater_state else "off",
         "heater_resistance": heater_resistance,
         "max_current": max_current,
+        "heater_range": heater_range
     }
     
     logging.debug(f"Sending heater state: {heater_params}")
@@ -322,6 +380,7 @@ def update_heater_setup(curr_state, n_intervals):
     Output("pid-ramp-rate", "value"),
     Output("heater-resistance", "value"),
     Output("max-current", "value"),
+    Output("heater-range", "value"),
     Input("get-current-values-button", "n_clicks"),
     State("cryostat-state", "data"),
     prevent_initial_call=False
@@ -329,7 +388,7 @@ def update_heater_setup(curr_state, n_intervals):
 def update_inputs(n_clicks, curr_state):
     """Update the input fields with the current state when button is pressed."""
     if n_clicks is None:
-        return None, None, None, None, None
+        return None, None, None, None, None, None
 
     pid_data = curr_state.get("pid", {})
     heater_setup = curr_state.get("heater_setup", {})
@@ -339,8 +398,9 @@ def update_inputs(n_clicks, curr_state):
     pid_ramp_rate = pid_data.get("ramp_rate")
     heater_resistance = heater_setup.get("heater_resistance")
     max_current = heater_setup.get("max_current")
+    heater_range = curr_state.get("heater_range")
 
-    return pid_gain, pid_integral, pid_ramp_rate, heater_resistance, max_current
+    return pid_gain, pid_integral, pid_ramp_rate, heater_resistance, max_current, heater_range
 
 # Run the app
 if __name__ == "__main__":
