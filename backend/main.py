@@ -5,6 +5,7 @@ from lakeshore import Model335
 from utils import initialize_connection, set_pid_values, set_heater_settings, fetch_status
 import uvicorn
 import json
+from utils import *
 
 app = FastAPI(title="Cryostat Control API", description="Backend API for controlling the Lake Shore Model 335.")
 
@@ -54,8 +55,7 @@ async def set_heater(request: HeaterSettingsRequest):
 async def get_status():
     """Fetch temperature and heater output."""
     try:
-        raise NotImplementedError("This endpoint is not implemented yet.")
-        return fetch_status(cryo)   # TODO: format as json
+        return json.dumps(fetch_status(cryo))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -68,12 +68,13 @@ async def websocket_endpoint(websocket: WebSocket):
     try:
         while True:
             # Example: Sending structured JSON instead of empty data
-            message = json.dumps({"status": "ok", "temperature": 4.2})      # TODO: Send real data
+            message = json.dumps(fetch_status(cryo))
             await websocket.send_text(message)
             await asyncio.sleep(0.1)  # Simulate real-time updates
     except WebSocketDisconnect:
         print("Client disconnected")
     except Exception as e:
+        raise e
         print(f"WebSocket error: {e}")
 
 @app.on_event("shutdown")

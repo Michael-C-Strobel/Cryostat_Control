@@ -63,10 +63,56 @@ def fetch_status(cryo):
     Returns:
         dict: Temperature (Celsius) and heater output.
     """
+    # Figure out dynamic id (multithreading may cause issues)
+    curr_id = 0
+    for curr_id in range(10):
+        try:
+            cryo.get_heater_setup(0)
+            break
+        except:
+            continue
+    if curr_id == 9:
+        raise ValueError("Could not identify heater output ID. You may have multiple connections open.")
+
     try:
-        temperature = cryo.get_celsius_reading(0)
-        heater_output = cryo.get_heater_output(0)
-        return {"temperature": temperature, "heater_output": heater_output}
+        heater_setup = cryo.get_heater_setup(curr_id)
+        temperature = cryo.get_all_kelvin_reading()
+        heater_output = cryo.get_heater_output(curr_id)
+        pid = cryo.get_heater_pid(curr_id)
+
+        # Reformat to control message structure
+        heater_setup_dict = {
+            "output_type": heater_setup["output_type"], # TODO: Resolve type
+            "heater_resistance": heater_setup["heater_resistnace"], # Note the spelling mistake, this is the actual key # TODO: Resolve type
+            "max_current": heater_setup["max_current"],
+            "output_display_mode": heater_setup["output_display_mode"]  # TODO: Resolve type
+        }
+
+        temperature_dict = {
+            "sensor_1": temperature[0],
+            "sensor_2": temperature[1],
+            "units": "K"
+        }
+
+        heater_output_dict = {
+            "output": heater_output,
+            "units": "%"
+        }
+
+        pid_dict = {
+            "gain": pid["gain"],
+            "integral": pid["integral"],
+            "ramp_rate": pid["ramp_rate"]
+        }
+
+        return {
+            "heater_setup": heater_setup_dict,
+            "temperature": temperature_dict,
+            "heater_output": heater_output_dict,
+            "pid": pid_dict
+        }
+
     except Exception as e:
         print(f"Error fetching status: {e}")
+        raise e
         return None
