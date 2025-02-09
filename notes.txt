@@ -10,3 +10,5 @@ The first time you share a usb port you need to enable sharing:
 ```usbipd bind --busid < busid >```
 Then you can share the device:
 ```usbipd bind --busid < busid >```
+
+You can check the shared devices with:

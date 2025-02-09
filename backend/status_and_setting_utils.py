@@ -30,11 +30,10 @@ def set_pid_values(cryo, loop, p_value, i_value, d_value):
         d_value (float): Derivative gain.
     """
     try:
-        cryo.set_pid(loop, p_value, i_value, d_value)
+        cryo.set_heater_pid(loop, p_value, i_value, d_value)
         print(f"PID values set: P={p_value}, I={i_value}, D={d_value}")
     except Exception as e:
         print(f"Error setting PID values: {e}")
-
 
 def set_heater_settings(cryo, heater_resistance, max_current, display_setting):
     """
@@ -48,7 +47,10 @@ def set_heater_settings(cryo, heater_resistance, max_current, display_setting):
     """
     try:
         cryo.set_heater_setup_one(heater_resistance, max_current, display_setting)
-        print(f"Heater settings applied: Resistance={heater_resistance}, Max Current={max_current}, Display={display_setting}")
+        logging.info(  f"Heater settings applied: \
+                        Resistance={heater_resistance}, \
+                        Max Current={max_current}, \
+                        Display={display_setting}")
     except Exception as e:
         print(f"Error setting heater settings: {e}")
 

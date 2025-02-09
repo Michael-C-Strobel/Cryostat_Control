@@ -8,7 +8,8 @@ from dash.dependencies import Input, Output, State
 import logging
 from datetime import datetime
 
-logging.basicConfig(level=logging.INFO)
+# logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.DEBUG)
 
 # Initialize Dash app
 app = dash.Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP])
@@ -32,7 +33,59 @@ NAVBAR = dbc.Navbar([
 
 INPUT_CARD = dbc.Card([
     dbc.CardHeader("Parameters"),
-    dbc.CardBody("Input placeholder here")
+    dbc.CardBody([
+        dbc.Row([
+            dbc.Label("PID Gain", width=4),
+            dbc.Col(
+                dbc.Input(
+                    id="pid-gain", type="number", placeholder="Enter PID Gain"
+                ),
+                width=8,
+            ),
+        ], className="mb-3"),
+        dbc.Row([
+            dbc.Label("PID Integral", width=4),
+            dbc.Col(
+                dbc.Input(id="pid-integral", type="number", placeholder="Enter PID Integral"),
+                width=8,
+            ),
+        ], className="mb-3"),
+        dbc.Row([
+            dbc.Label("PID Ramp Rate (Derivative)", width=4),
+            dbc.Col(
+                dbc.Input(id="pid-ramp-rate", type="number", placeholder="Enter PID Ramp Rate"),
+                width=8,
+            ),
+        ], className="mb-3"),
+        dbc.Row([
+            dbc.Label("Heater State", width=4),
+            dbc.Col(
+                dbc.Checklist(
+                    options=[{"label": "Allow Heater On", "value": "on"}],
+                    value=[],
+                    id="heater-state",
+                    switch=True,
+                ),
+                width=8,
+            ),
+        ], className="mb-3"),
+        dbc.Row([
+            dbc.Label("Heater Resistance", width=4),
+            dbc.Col(
+                dbc.Input(id="heater-resistance", type="number", placeholder="Enter Heater Resistance"),
+                width=8,
+            ),
+        ], className="mb-3"),
+        dbc.Row([
+            dbc.Label("Max Current", width=4),
+            dbc.Col(
+                dbc.Input(id="max-current", type="number", placeholder="Enter Max Current"),
+                width=8,
+            ),
+        ], className="mb-3"),
+        dbc.Button("Set Parameters", id="set-parameters-button", color="primary", className="mt-2"),
+        dbc.Button("Get Current Values", id="get-current-values-button", color="secondary", className="mt-2 me-2"),
+    ])
 ])
 
 CONTRIBUTORS_CARD = dbc.Card([
@@ -42,8 +95,8 @@ CONTRIBUTORS_CARD = dbc.Card([
             "Kaitlyn G. Dold - University of California, Irvine", html.Br(),
             "Dimitri Leo M. Cordova, Ph.D. - University of California, Irvine", html.Br(),
             "Maxx Q. Arguilla, Ph.D. - University of California, Irvine", html.Br(),
-    ])
-])
+    ]),
+], style={"margin": "10px"})
 
 MONITORING_CARD = dbc.Card([
     dbc.CardHeader("Current Status"),
@@ -63,6 +116,7 @@ MONITORING_CARD = dbc.Card([
 # Layout with Two Columns
 app.layout = html.Div([
     WebSocket(id="ws", url="ws://localhost:8000/ws"),  # Initialize backend connection
+    WebSocket(id="set-heater-state-ws", url="ws://localhost:8000/set-heater-state"),
     dcc.Interval(id='interval-component', interval=1000, n_intervals=0), # Update every second
     dcc.Store(id='temperature-history', data=[], storage_type='session'),  # Store historical temperature data
     dcc.Store(id='cryostat-state', data={}),  # Store current cryostat state
@@ -175,6 +229,39 @@ def update_status(n_intervals, message, temp_history):
 
     return curr_state, figure, temp_history  
 
+@app.callback(
+    Output("set-heater-state-ws", "send"),
+    Input("set-parameters-button", "n_clicks"),
+    State("pid-gain", "value"),
+    State("pid-integral", "value"),
+    State("pid-ramp-rate", "value"),
+    State("heater-state", "value"),
+    State("heater-resistance", "value"),
+    State("max-current", "value"),
+    prevent_initial_call=True
+)
+def set_heater_state(n_clicks,
+                    pid_gain,
+                    pid_integral,
+                    pid_ramp_rate,
+                    heater_state,
+                    heater_resistance,
+                    max_current):
+    """Send the heater state to the backend."""
+    if n_clicks is None:
+        return {}
+    
+    heater_params = {
+        "pid_gain": pid_gain,
+        "pid_integral": pid_integral,
+        "pid_ramp_rate": pid_ramp_rate,
+        "heater_state": "on" if "on" in heater_state else "off",
+        "heater_resistance": heater_resistance,
+        "max_current": max_current,
+    }
+    
+    logging.debug(f"Sending heater state: {heater_params}")
+    return json.dumps(heater_params)
 
 ### Listeners for dashboard fields ###
 @app.callback(
@@ -228,6 +315,32 @@ def update_heater_setup(curr_state, n_intervals):
     if not heater_setup:
         return "No data available"
     return f"Heater Setup: {heater_setup}"
+
+@app.callback(
+    Output("pid-gain", "value"),
+    Output("pid-integral", "value"),
+    Output("pid-ramp-rate", "value"),
+    Output("heater-resistance", "value"),
+    Output("max-current", "value"),
+    Input("get-current-values-button", "n_clicks"),
+    State("cryostat-state", "data"),
+    prevent_initial_call=False
+)
+def update_inputs(n_clicks, curr_state):
+    """Update the input fields with the current state when button is pressed."""
+    if n_clicks is None:
+        return None, None, None, None, None
+
+    pid_data = curr_state.get("pid", {})
+    heater_setup = curr_state.get("heater_setup", {})
+
+    pid_gain = pid_data.get("gain")
+    pid_integral = pid_data.get("integral")
+    pid_ramp_rate = pid_data.get("ramp_rate")
+    heater_resistance = heater_setup.get("heater_resistance")
+    max_current = heater_setup.get("max_current")
+
+    return pid_gain, pid_integral, pid_ramp_rate, heater_resistance, max_current
 
 # Run the app
 if __name__ == "__main__":

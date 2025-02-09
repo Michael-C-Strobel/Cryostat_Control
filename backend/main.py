@@ -1,11 +1,9 @@
 import asyncio
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
-from pydantic import BaseModel
-from lakeshore import Model335
-from utils import initialize_connection, set_pid_values, set_heater_settings, fetch_status
 import uvicorn
 import json
-from utils import *
+from status_and_setting_utils import *
+from setter_utils import *
 
 app = FastAPI(title="Cryostat Control API", description="Backend API for controlling the Lake Shore Model 335.")
 
@@ -16,40 +14,6 @@ if cryo is None:
 
 # Store active WebSocket connections
 active_connections = set()
-
-
-class PIDRequest(BaseModel):
-    loop: int
-    p_value: float
-    i_value: float
-    d_value: float
-
-
-class HeaterSettingsRequest(BaseModel):
-    heater_resistance: int  
-    max_current: float
-    display_setting: int  
-
-
-@app.post("/set_pid")
-async def set_pid(request: PIDRequest):
-    """Set PID values."""
-    try:
-        set_pid_values(cryo, request.loop, request.p_value, request.i_value, request.d_value)
-        return {"message": "PID values updated successfully"}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.post("/set_heater")
-async def set_heater(request: HeaterSettingsRequest):
-    """Set heater settings."""
-    try:
-        set_heater_settings(cryo, request.heater_resistance, request.max_current, request.display_setting)
-        return {"message": "Heater settings updated successfully"}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
 
 @app.get("/status")
 async def get_status():
@@ -76,6 +40,48 @@ async def websocket_endpoint(websocket: WebSocket):
     except Exception as e:
         raise e
         print(f"WebSocket error: {e}")
+
+
+@app.websocket("/set-heater-state")
+async def websocket_set_heater(websocket: WebSocket):
+    """ WebSocket endpoint that sets the heater state.
+
+    # Incoming Data
+    #  {'pid_gain': None, 
+    # 'pid_integral': None, 
+    # 'pid_ramp_rate': None, 
+    # 'heater_state': 'on', 
+    # 'heater_resistance': None, 
+    # 'max_current': None, 
+    # 'display_settings': None}
+
+    # TODO: Use set_pid_values() from status_and_setting_utils.py
+    # TODO: Use set_heater_settings() from status_and_setting_utils.py
+    """
+    await websocket.accept()
+    try:
+        while True:
+            data = await websocket.receive_json()
+            logging.debug(f"Received data: {data}")
+
+            if 'heater_state' in data:
+                if data['heater_state'] == 'on':
+                    pass
+                elif data['heater_state'] == 'off':
+                    cryo.all_heaters_off()
+            
+            if 'pid_gain' in data and 'pid_integral' in data and 'pid_ramp_rate' in data:
+                set_pid_values(cryo, 1, data['pid_gain'], data['pid_integral'], data['pid_ramp_rate'])
+            
+            if 'heater_resistance' in data and 'max_current' in data and 'display_settings' in data:
+                set_heater_settings(cryo, data['heater_resistance'], data['max_current'], data['display_settings'])
+            
+            await websocket.send_text(json.dumps({"status": "settings updated"}))
+    except WebSocketDisconnect:
+        print("Client disconnected")
+    except Exception as e:
+        print(f"WebSocket error: {e}")
+        await websocket.send_text(json.dumps({"error": str(e)}))
 
 @app.on_event("shutdown")
 def shutdown_event():
