@@ -16,7 +16,7 @@ services:
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
-      interval: 10s
+      interval: 5s
       timeout: 5s
       retries: 3
       start_period: 5s
@@ -32,10 +32,10 @@ services:
       backend:
         condition: service_healthy  # Ensure backend is ready before starting frontend
     ports:
-      - "8501:8501"  # Expose Streamlit on port 8501
+      - "8050:8050"  # Expose dash on port 8050
     networks:
       - cryostat-net
-    restart: unless-stopped
+    restart: no
 
 networks:
   cryostat-net:

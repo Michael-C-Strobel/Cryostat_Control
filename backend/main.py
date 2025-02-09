@@ -54,20 +54,23 @@ async def set_heater(request: HeaterSettingsRequest):
 async def get_status():
     """Fetch temperature and heater output."""
     try:
-        return fetch_status(cryo)
+        raise NotImplementedError("This endpoint is not implemented yet.")
+        return fetch_status(cryo)   # TODO: format as json
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
+    """ WebSocket endpoint that sends data to the frontend.
+    """
     await websocket.accept()
     try:
         while True:
             # Example: Sending structured JSON instead of empty data
-            message = json.dumps({"status": "ok", "temperature": 4.2})  
+            message = json.dumps({"status": "ok", "temperature": 4.2})      # TODO: Send real data
             await websocket.send_text(message)
-            await asyncio.sleep(0.001)  # Simulate real-time updates
+            await asyncio.sleep(0.1)  # Simulate real-time updates
     except WebSocketDisconnect:
         print("Client disconnected")
     except Exception as e:
@@ -83,6 +86,9 @@ def shutdown_event():
 
 @app.get("/health")
 def health():
+    """Health check endpoint. Docker will stop if this fails to respond 
+    (see docker-compose.yml)
+    """
     return {"status": "ok"}
 
 if __name__ == "__main__":

@@ -1,5 +1,7 @@
-streamlit
+dash
 pandas
 requests
 plotly
 websockets
+dash-extensions
+dash-bootstrap-components 
