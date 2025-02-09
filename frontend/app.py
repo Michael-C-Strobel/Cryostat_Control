@@ -13,19 +13,22 @@ status_placeholder = st.empty()  # Placeholder for real-time updates
 
 async def get_realtime_data():
     """Connects to WebSocket for real-time updates."""
-    uri = "ws://localhost:8000/ws"  # WebSocket endpoint
+    uri = "ws://backend:8000/ws"  # Use the service name from docker-compose
     async with websockets.connect(uri) as websocket:
         while True:
             data = await websocket.recv()
             status = json.loads(data)
 
+            # Display all data
+            st.write("Received data:", status)
+
             # Display status in Streamlit
             status_placeholder.write(f"""
-            **Temperature (Celsius):** {status["temperature"]}
-            **Heater Output:** {status["heater_output"]}
+            **Temperature (Celsius):** {status.get("temperature", "Unknown")}
+            **Heater Output:** {status.get("heater_output", "Unknown")}
             """)
 
-            await asyncio.sleep(0.1)  # Keep listening
+            await asyncio.sleep(0.01)  # Keep listening
 
 
 # Start WebSocket Listener

@@ -1,4 +1,5 @@
 version: "3"
+
 services:
   backend:
     build:
@@ -6,13 +7,19 @@ services:
       dockerfile: Dockerfile.backend
     container_name: cryostat-backend
     devices:
-      - /dev/bus/usb:/dev/bus/usb  # Allow backend to access USB port TODO: Check Mac compatibility
-      - /dev:/dev # Allow backend to access devices
+      - /dev/bus/usb:/dev/bus/usb  # Allow USB access (TODO: Check Mac compatibility)
+      - /dev:/dev  # Allow access to other devices
     ports:
       - "8000:8000"  # Expose FastAPI on port 8000
     networks:
       - cryostat-net
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
 
   frontend:
     build:
@@ -20,9 +27,10 @@ services:
       dockerfile: Dockerfile.frontend
     container_name: cryostat-frontend
     devices:
-      - /dev/bus/usb:/dev/bus/usb  # Allow frontend to access USB port TODO: Check Mac compatibility
+      - /dev/bus/usb:/dev/bus/usb  # Allow frontend to access USB port (TODO: Check Mac compatibility)
     depends_on:
-      - backend  # Ensure backend starts first
+      backend:
+        condition: service_healthy  # Ensure backend is ready before starting frontend
     ports:
       - "8501:8501"  # Expose Streamlit on port 8501
     networks:

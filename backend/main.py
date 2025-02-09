@@ -3,6 +3,8 @@ from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
 from lakeshore import Model335
 from utils import initialize_connection, set_pid_values, set_heater_settings, fetch_status
+import uvicorn
+import json
 
 app = FastAPI(title="Cryostat Control API", description="Backend API for controlling the Lake Shore Model 335.")
 
@@ -59,20 +61,17 @@ async def get_status():
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
-    """WebSocket endpoint for real-time cryostat updates."""
     await websocket.accept()
-    active_connections.add(websocket)
     try:
         while True:
-            status = fetch_status(cryo)  # Fetch current status
-            await websocket.send_json(status)
-            await asyncio.sleep(2)  # Update every 2 seconds
+            # Example: Sending structured JSON instead of empty data
+            message = json.dumps({"status": "ok", "temperature": 4.2})  
+            await websocket.send_text(message)
+            await asyncio.sleep(0.001)  # Simulate real-time updates
     except WebSocketDisconnect:
-        active_connections.remove(websocket)
         print("Client disconnected")
     except Exception as e:
         print(f"WebSocket error: {e}")
-
 
 @app.on_event("shutdown")
 def shutdown_event():
@@ -81,3 +80,10 @@ def shutdown_event():
     if cryo:
         cryo.all_heaters_off()
         print("Cryostat heaters turned off before shutdown.")
+
+@app.get("/health")
+def health():
+    return {"status": "ok"}
+
+if __name__ == "__main__":
+    uvicorn.run(app, host="0.0.0.0", port=8000)
