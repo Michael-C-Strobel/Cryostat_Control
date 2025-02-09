@@ -1,0 +1,12 @@
+For windows docker must run in WSL 2 mode
+Must previously install usbipd via cmd:
+```winget install usbipd```
+and restart terminal 
+
+On windows, each time before you use the device you must identify
+the usb port with 
+```usbip list -l```
+The first time you share a usb port you need to enable sharing:
+```usbipd bind --busid < busid >```
+Then you can share the device:
+```usbipd bind --busid < busid >```

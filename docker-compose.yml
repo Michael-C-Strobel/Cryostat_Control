@@ -5,6 +5,9 @@ services:
       context: ./backend
       dockerfile: Dockerfile.backend
     container_name: cryostat-backend
+    devices:
+      - /dev/bus/usb:/dev/bus/usb  # Allow backend to access USB port TODO: Check Mac compatibility
+      - /dev:/dev # Allow backend to access devices
     ports:
       - "8000:8000"  # Expose FastAPI on port 8000
     networks:
@@ -16,6 +19,8 @@ services:
       context: ./frontend
       dockerfile: Dockerfile.frontend
     container_name: cryostat-frontend
+    devices:
+      - /dev/bus/usb:/dev/bus/usb  # Allow frontend to access USB port TODO: Check Mac compatibility
     depends_on:
       - backend  # Ensure backend starts first
     ports:

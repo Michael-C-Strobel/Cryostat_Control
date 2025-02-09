@@ -2,7 +2,7 @@ import asyncio
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
 from lakeshore import Model335
-from cryostat_control import initialize_connection, set_pid_values, set_heater_settings, fetch_status
+from utils import initialize_connection, set_pid_values, set_heater_settings, fetch_status
 
 app = FastAPI(title="Cryostat Control API", description="Backend API for controlling the Lake Shore Model 335.")
 

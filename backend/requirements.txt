@@ -1,5 +1,6 @@
-streamlit
 pandas
 requests
 plotly
 lakeshore
+fastapi
+uvicorn[standard]  # Make sure uvicorn is listed here

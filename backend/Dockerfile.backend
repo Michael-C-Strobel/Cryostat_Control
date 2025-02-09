@@ -6,8 +6,15 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
+# install lsusb
+RUN apt-get update && apt-get install -y usbutils
+
 # Copy application code
 COPY . .
 
 # Run FastAPI
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+
+
+# DEBUG
+# CMD ["sleep", "infinity"]
