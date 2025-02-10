@@ -4,7 +4,7 @@ from typing import List, Tuple
 
 def set_curve(cryo:Model335, data:List[Tuple[float, float, float]]):
     """
-    Sets the temperature curve for the specified sensor.
+    Sets the temperature curve.
 
     Args:
         cryo (Model335): The initialized cryostat controller object.
@@ -17,3 +17,10 @@ def set_curve(cryo:Model335, data:List[Tuple[float, float, float]]):
     except Exception as e:
         logging.error(f"Error setting temperature curve: {e}")
     
+def get_curve(cryo:Model335,):
+    """Gets the current temperature curve
+
+    Args:
+        cryo (Model335):
+    """
+    return cryo.get_curve(0)
