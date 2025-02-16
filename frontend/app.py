@@ -56,14 +56,14 @@ PARAMETERS = [
             dbc.Input(id="pid-ramp-rate", type="number", placeholder="Enter PID Ramp Rate"),
             width=8,
         ),
-    ], className="mb-3", style={"display": "none"}),  # Hidden because it doesn't appear to be settable
+    ], className="mb-3"),
     dbc.Row([
         dbc.Label("Ramp Rate", width=4),
         dbc.Col(
             dbc.Input(id="ramp-rate", type="number", placeholder="Enter Ramp Rate"),
             width=8,
         ),
-    ], className="mb-3"),
+    ], className="mb-3", style={"display": "none"}),  # Hidden because it doesn't appear to be settable
     dbc.Row([
         dbc.Label("Heater Resistance", width=4),
         dbc.Col(
