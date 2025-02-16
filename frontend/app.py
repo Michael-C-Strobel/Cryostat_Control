@@ -56,6 +56,13 @@ PARAMETERS = [
             dbc.Input(id="pid-ramp-rate", type="number", placeholder="Enter PID Ramp Rate"),
             width=8,
         ),
+    ], className="mb-3", style={"display": "none"}),  # Hidden because it doesn't appear to be settable
+    dbc.Row([
+        dbc.Label("Ramp Rate", width=4),
+        dbc.Col(
+            dbc.Input(id="ramp-rate", type="number", placeholder="Enter Ramp Rate"),
+            width=8,
+        ),
     ], className="mb-3"),
     dbc.Row([
         dbc.Label("Heater Resistance", width=4),
@@ -92,27 +99,31 @@ PARAMETERS = [
 ]
 
 df = pd.DataFrame({
-    'Sensor Units': ['K', 'K', 'K'],
     'Temp Value': [293.0, 295.0, 293.0],
-    'Curvature Value (Optional)': [None, None, None],
 })
 
 editable_table = dash_table.DataTable(
     id='editable-table',
     columns=[
-        {'name': 'Sensor Units', 'id': 'Sensor Units', 'editable': True},
         {'name': 'Temp Value', 'id': 'Temp Value', 'editable': True},
-        {'name': 'Curvature Value (Optional)', 'id': 'Curvature Value (Optional)', 'editable': True},
     ],
     data=df.to_dict('records'),
     editable=True
 )
 # Button to add new rows
-add_row_button = dbc.Button("Add Row", id="add-row-button", color="success", className="mt-2")
+temperature_schedule_buttons = html.Div([
+    dbc.Row([
+        dbc.Col(dbc.Button("Add Row", id="add-row-button", color="primary", className="mt-2"), width="auto"),
+        dbc.Col(dbc.Button("Delete Row", id="delete-row-button", color="primary", className="mt-2"), width="auto"),  
+        dbc.Col(dbc.Button("Run", id="run-button", color="success", className="mt-2"), width="auto"),
+        dbc.Col(dbc.Button("Stop", id="stop-button", color="warning", className="mt-2"), width="auto"),
+        dbc.Col(dbc.Button("Heater Off", id="heater-off-button", color="danger", className="mt-2"), width="auto"),
+    ], className="d-flex justify-content-center")
+])
 
 # Callback to add new rows to the table
 @app.callback(
-    Output('editable-table', 'data'),
+    Output('editable-table', 'data', allow_duplicate=True),
     Input('add-row-button', 'n_clicks'),
     State('editable-table', 'data'),
     State('editable-table', 'columns'),
@@ -125,10 +136,74 @@ def add_row(n_clicks, rows, columns):
     rows.append(new_row)
     return rows
 
+@app.callback(
+    Output('editable-table', 'data', allow_duplicate=True),
+    Input('delete-row-button', 'n_clicks'),
+    State('editable-table', 'data'),
+    prevent_initial_call=True
+)
+def delete_row(n_clicks, rows):
+    if n_clicks is None:
+        return rows
+    if len(rows) > 1:
+        rows.pop()
+    return rows
+
+temperature_tolerance = html.Div([
+    dbc.Row([
+        dbc.Label("Temperature Tolerance", width=4),
+        dbc.Col(
+            dbc.Input(id="temperature-tolerance", type="number", placeholder="Enter Temperature Tolerance", value=0.1),
+            width=8,
+        ),
+        dbc.Tooltip(
+            "Tolerance value for measurements to be triggered (measurements will trigger when measured temperature is within +/- threshold).",
+            target="temperature-tolerance",
+        ),
+    ], className="mb-3"),
+])
+
+hold_time = html.Div([
+    dbc.Row([
+        dbc.Label("Hold Time", width=4),
+        dbc.Col(
+            dbc.Input(id="hold-time", type="number", placeholder="Enter Hold Time", value=60),
+            width=8,
+        ),
+        dbc.Tooltip(
+            "Time to hold at each setpoint while taking a measurement.",
+            target="hold-time",
+        ),
+    ], className="mb-3"),
+])
+
+sustain_on_end = html.Div([
+    dbc.Row([
+        dbc.Label("Sustain on End", width=4),
+        dbc.Col(
+            dbc.Checklist(
+                id="sustain-on-end",
+                options=[{"label": "Sustain on End", "value": True}],
+                value=[],
+                switch=True
+            ),
+            width=8,
+        ),
+        dbc.Tooltip(
+            "If checked, the system will sustain the last setpoint temperature after the schedule ends.",
+            target="sustain-on-end",
+        ),
+    ], className="mb-3"),
+])
+
 # Add the button to the layout
 editable_table_with_button = html.Div([
+    html.H5("Temperature Schedule Options"),
+    temperature_tolerance,
+    hold_time,
+    sustain_on_end,
     editable_table,
-    add_row_button
+    temperature_schedule_buttons
 ])
 
 INPUT_CARD = dbc.Card([
@@ -171,6 +246,9 @@ MONITORING_CARD = dbc.Card([
 app.layout = html.Div([
     WebSocket(id="ws", url="ws://localhost:8000/ws"),  # Initialize backend connection
     WebSocket(id="set-heater-state-ws", url="ws://localhost:8000/set-heater-state"),
+    WebSocket(id="start-temperature-schedule-ws", url="ws://localhost:8000/start-temperature-schedule"),
+    WebSocket(id="stop-temperature-schedule-ws", url="ws://localhost:8000/stop-temperature-schedule"),
+    WebSocket(id="heaters-off-ws", url="ws://localhost:8000/heaters-off"),
     dcc.Interval(id='interval-component', interval=1000, n_intervals=0), # Update every second
     dcc.Store(id='temperature-history', data=[], storage_type='session'),  # Store historical temperature data
     dcc.Store(id='cryostat-state', data={}),  # Store current cryostat state
@@ -293,6 +371,7 @@ def update_status(n_intervals, message, temp_history):
     State("pid-gain", "value"),
     State("pid-integral", "value"),
     State("pid-ramp-rate", "value"),
+    State("ramp-rate", "value"),
     State("heater-resistance", "value"),
     State("max-current", "value"),
     State("heater-range", "value"),
@@ -302,6 +381,7 @@ def set_heater_state(n_clicks,
                     pid_gain,
                     pid_integral,
                     pid_ramp_rate,
+                    ramp_rate,
                     heater_resistance,
                     max_current,
                     heater_range):
@@ -313,6 +393,7 @@ def set_heater_state(n_clicks,
         "pid_gain": pid_gain,
         "pid_integral": pid_integral,
         "pid_ramp_rate": pid_ramp_rate,
+        "ramp_rate": ramp_rate,
         "heater_resistance": heater_resistance,
         "max_current": max_current,
         "heater_range": heater_range
@@ -401,6 +482,81 @@ def update_inputs(n_clicks, curr_state):
     heater_range = curr_state.get("heater_range")
 
     return pid_gain, pid_integral, pid_ramp_rate, heater_resistance, max_current, heater_range
+
+### Listerners for Temperature Scheduler
+@app.callback(
+    Output("start-temperature-schedule-ws", "send"),
+    Input("run-button", "n_clicks"),
+    State("editable-table", "data"),
+    State("temperature-tolerance", "value"),
+    State("hold-time", "value"),
+    State("sustain-on-end", "value"),
+    prevent_initial_call=True
+)
+def start_temperature_schedule(n_clicks, table_data, temperature_tolerance, hold_time, sustain_on_end):
+    """Start the temperature schedule based on the table data."""
+    if n_clicks is None:
+        return {}
+
+    if not isinstance(temperature_tolerance, (int, float)):
+        raise ValueError("temperature_tolerance must be a number")
+
+    sustain_on_end = sustain_on_end[0] if sustain_on_end else False
+    if not isinstance(sustain_on_end, bool):
+        raise ValueError(f"sustain_on_end must be a boolean value, got {sustain_on_end}")
+
+    try:
+        setpoints = [float(row["Temp Value"]) for row in table_data if row["Temp Value"]]
+    except ValueError:
+        raise ValueError("All setpoints must be valid numbers") 
+
+    try:
+        hold_time = float(hold_time)
+    except ValueError:
+        raise ValueError("Hold time must be a valid number")
+
+
+    threshold = temperature_tolerance
+
+    schedule_data = {
+        "setpoints": setpoints,
+        "threshold": threshold,
+        "sustain": sustain_on_end,
+        "hold_time": hold_time,
+    }
+
+    logging.info(f"Starting temperature schedule with data: {schedule_data}")
+
+    return json.dumps(schedule_data)
+
+@app.callback(
+    Output("stop-temperature-schedule-ws", "send"),
+    Input("stop-button", "n_clicks"),
+    prevent_initial_call=True
+)
+def stop_temperature_schedule(n_clicks):
+    """Stop the temperature schedule."""
+    if n_clicks is None:
+        return {}
+    
+    return json.dumps({"command": "stop_temperature_schedule"})
+
+### Emergency Stop ###
+@app.callback(
+    Output("heaters-off-ws", "send"),
+    Input("heater-off-button", "n_clicks"),
+    prevent_initial_call=True
+)
+def turn_off_heaters(n_clicks):
+    """Turn off all heaters."""
+    if n_clicks is None:
+        return {}
+    
+    heater_off_command = {
+        "command": "turn_off_heaters"
+    }
+    
+    return json.dumps(heater_off_command)
 
 # Run the app
 if __name__ == "__main__":

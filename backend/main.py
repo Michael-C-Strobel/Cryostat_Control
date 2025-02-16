@@ -1,9 +1,10 @@
 import asyncio
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, BackgroundTasks
 import uvicorn
 import json
+from typing import List, Tuple, Dict
+from temperature_scheduler import TemperatureScheduler
 from status_and_setting_utils import *
-from setter_utils import *
 import logging
 
 logging.basicConfig(level=logging.WARNING)
@@ -17,6 +18,8 @@ if cryo is None:
 
 # Store active WebSocket connections
 active_connections = set()
+
+temperature_scheduler = None
 
 @app.get("/status")
 async def get_status():
@@ -83,6 +86,73 @@ async def websocket_set_heater(websocket: WebSocket):
     except Exception as e:
         print(f"WebSocket error: {e}")
         await websocket.send_text(json.dumps({"error": str(e)}))
+
+@app.websocket("/start-temperature-schedule")
+async def websocket_start_temperature_schedule(websocket: WebSocket):
+    """WebSocket endpoint to start the temperature schedule."""
+    await websocket.accept()
+    try:
+        while True:
+            data = await websocket.receive_json()
+            logging.info(f"Received schedule data: {data}")
+
+            setpoints = data.get("setpoints", [])
+            threshold = data.get("threshold", 0.1)
+            sustain_on_exit   = data.get("sustain", False)
+            hold_time = data.get("hold_time", 60)
+
+            global temperature_scheduler
+            if temperature_scheduler and temperature_scheduler.running:
+                temperature_scheduler.running = False
+
+            def notify_callback(temp):
+                asyncio.create_task(broadcast_temperature(temp))
+
+            temperature_scheduler = TemperatureScheduler(cryo, heater_output=1, setpoints=setpoints, threshold=threshold, 
+                                    hold_time=hold_time,
+                                    sustain_on_exit=sustain_on_exit)
+            asyncio.create_task(temperature_scheduler.monitor_temperature(notify_callback))
+
+            await websocket.send_text(json.dumps({"status": "Temperature schedule started"}))
+
+    except WebSocketDisconnect:
+        logging.info("WebSocket disconnected")
+    except Exception as e:
+        logging.error(f"WebSocket error: {e}")
+        await websocket.send_text(json.dumps({"error": str(e)}))
+
+async def broadcast_temperature(temp):
+    """Notify all connected WebSocket clients about temperature stability."""
+    message = json.dumps({"stable_temperature": temp})
+    for connection in active_connections:
+        try:
+            await connection.send_text(message)
+        except:
+            pass  # Handle disconnections gracefully
+
+@app.websocket("/stop-temperature-schedule")
+async def websocket_stop_temperature_schedule(websocket: WebSocket):
+    """WebSocket endpoint to stop the temperature schedule."""
+    await websocket.accept()
+    logging.warning("Stopping temperature schedule")
+    global temperature_scheduler
+    if temperature_scheduler:
+        temperature_scheduler.running = False
+        logging.warning("Temperature schedule stopped, starting to wait")
+        await websocket.send_text(json.dumps({"status": "Temperature schedule stopped"}))
+        logging.warning("Exiting")
+    else:
+        await websocket.send_text(json.dumps({"error": "No active temperature schedule"}))
+
+@app.websocket("/heaters-off")
+async def websocket_heaters_off(websocket: WebSocket):
+    await websocket.accept()
+    while True:
+        data = await websocket.receive_text()
+        logging.info("Truning Heaters Off")
+        cryo.all_heaters_off()
+        await websocket.send_text("Heaters turned off")
+
 
 @app.on_event("shutdown")
 def shutdown_event():
