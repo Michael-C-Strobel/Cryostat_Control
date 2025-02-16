@@ -1,10 +1,10 @@
 version: "3"
 
 services:
-  backend:
+  cyrostat-backend:
     build:
-      context: ./backend
-      dockerfile: Dockerfile.backend
+      context: ./cryostat_backend
+      dockerfile: Dockerfile
     container_name: cryostat-backend
     devices:
       - /dev/bus/usb:/dev/bus/usb  # Allow USB access (TODO: Check Mac compatibility)
@@ -12,7 +12,7 @@ services:
     ports:
       - "8000:8000"  # Expose FastAPI on port 8000
     networks:
-      - cryostat-net
+      - instrument-net
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
@@ -24,7 +24,7 @@ services:
   frontend:
     build:
       context: ./frontend
-      dockerfile: Dockerfile.frontend
+      dockerfile: Dockerfile
     container_name: cryostat-frontend
     devices:
       - /dev/bus/usb:/dev/bus/usb  # Allow frontend to access USB port (TODO: Check Mac compatibility)
@@ -34,9 +34,9 @@ services:
     ports:
       - "8050:8050"  # Expose dash on port 8050
     networks:
-      - cryostat-net
+      - instrument-net
     restart: no
 
 networks:
-  cryostat-net:
+  instrument-net:
     driver: bridge
