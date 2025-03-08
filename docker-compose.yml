@@ -59,7 +59,7 @@ services:
       - "8050:8050"  # Expose dash on port 8050
     networks:
       - instrument-net
-    restart: no
+    restart: 'no'
 
 networks:
   instrument-net:

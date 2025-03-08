@@ -6,6 +6,22 @@ from dash_extensions import WebSocket
 
 def register_callbacks(app):
     @app.callback(
+        Input("sourcementer_check_connections", "n_clicks"),
+        Output("adapter-input", "options")
+    )
+    async def update_connections_dropdown(n_clicks):
+        if n_clicks is None:
+            return []
+
+        # Establish WebSocket connection and get the output
+        async with websockets.connect("ws://localhost:8001/connection_options") as websocket:
+            content = await websocket.recv()
+
+        # Return the received content directly (assuming it's already formatted correctly)
+        return content
+
+
+    @app.callback(
         Output("iv-curve-plot", "figure"),
         Input("iv-curve-data", "data"),
     )

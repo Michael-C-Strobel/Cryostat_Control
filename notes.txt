@@ -20,3 +20,23 @@ Instal usbip
 ```
 sudo apt install linux-tools-virtual hwdata
 ```
+
+
+Some notes about building in docker
+To change the build directory create and set builder
+```
+/etc/docker/daemon.json
+```
+```
+{
+  "data-root": "/new/path/to/docker"
+}
+```
+Restart Docker
+```
+sudo systemctl restart docker
+```
+Build with value set in Makefile
+```
+make build-keithley
+```

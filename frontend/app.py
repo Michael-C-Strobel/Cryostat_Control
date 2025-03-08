@@ -266,6 +266,8 @@ app.layout = html.Div([
     WebSocket(id="source-meter-status-ws", url="ws://localhost:8001/ws"),
     # Websocket that listens for IV curve data
     WebSocket(id="iv-curve-data-ws", url="ws://localhost:8001/measure_iv_curve"),
+    # Websocket that gets options for sourcemeter connections
+    # WebSocket(id="sourcemeter-connections-ws", url="ws://localhost:8001/connection_options")
     dcc.Interval(id='interval-component', interval=1000, n_intervals=0), # Update every second
     dcc.Store(id='temperature-history', data=[], storage_type='session'),  # Store historical temperature data
     dcc.Store(id='cryostat-state', data={}),  # Store current cryostat state

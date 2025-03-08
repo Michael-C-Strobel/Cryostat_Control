@@ -1,10 +1,6 @@
-pandas
 requests
-plotly
-lakeshore
 fastapi
 uvicorn[standard]
 pymeasure
 PyVISA-py
-zeroconf
 psutil

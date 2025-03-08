@@ -1,4 +1,5 @@
 from pymeasure.instruments.keithley import Keithley2400
+import serial.tools.list_ports
 from typing import List, Dict, Tuple
 import asyncio
 import logging
@@ -11,6 +12,19 @@ Plot it them all together on a graph
 
 Add option to download data
 """
+
+def query_connections() -> List:
+    """Return set of options for USB connections"""
+    ports = list(serial.tools.list_ports.comports())
+
+    usb_ports = [
+        (port.device, port.description)  # Use port.device for value, port.description for label
+        for port in ports
+        if 'usb' in str(port.description).lower()  # Filter based on PL2303 chipset
+    ]
+    dropdown_options = [{'label': description, 'value': device} for device, description in usb_ports]
+    return dropdown_options
+
 
 def initialize_connection(adapter: str = "GPIB::1") -> Keithley2400:
     """Initializes the connection to the Keithley 2400 SourceMeter."""

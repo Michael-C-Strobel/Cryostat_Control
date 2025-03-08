@@ -19,6 +19,11 @@ active_connections = set()
 @app.get("/status")
 async def get_status():
     """Fetch temperature and heater output."""
+    raise NotImplementedError("/status is not implemented")
+
+@app.get("/connection_options")
+async def get_connection_options():
+    return query_connections()
 
 # Endpoint to initialize connection
 @app.post("/initialize")
