@@ -10,6 +10,10 @@ from datetime import datetime
 import pandas as pd
 from dash import dash_table
 
+# IV Curve bits
+from addons.iv_curve_callbacks import register_callbacks as register_iv_curve_callbacks
+from addons.iv_curve import IV_CURVE_CARD
+
 # logging.basicConfig(level=logging.INFO)
 logging.basicConfig(level=logging.DEBUG)
 
@@ -227,8 +231,8 @@ CONTRIBUTORS_CARD = dbc.Card([
     ]),
 ], style={"margin": "10px"})
 
-MONITORING_CARD = dbc.Card([
-    dbc.CardHeader("Current Status"),
+CRYOSTAT_MONITORING_CARD = dbc.Card([
+    dbc.CardHeader("Cryostat Status"),
     dbc.CardBody([
         html.H5("Temperature (Celsius):"),
         html.Div(id="temperature", className="mb-2"),
@@ -242,6 +246,13 @@ MONITORING_CARD = dbc.Card([
     ])
 ])
 
+ADDONS = dbc.Card([
+    dbc.CardHeader("Addons"),
+    dbc.CardBody([
+        IV_CURVE_CARD
+    ])
+])
+
 # Layout with Two Columns
 app.layout = html.Div([
     WebSocket(id="ws", url="ws://localhost:8000/ws"),  # Initialize backend connection
@@ -249,9 +260,16 @@ app.layout = html.Div([
     WebSocket(id="start-temperature-schedule-ws", url="ws://localhost:8000/start-temperature-schedule"),
     WebSocket(id="stop-temperature-schedule-ws", url="ws://localhost:8000/stop-temperature-schedule"),
     WebSocket(id="heaters-off-ws", url="ws://localhost:8000/heaters-off"),
+    # Websocket to initialize connection
+    WebSocket(id="source-meter-initialize-connection-ws", url="ws://localhost:8001/initialize"),
+    # Websocket that lists for current status from source meter
+    WebSocket(id="source-meter-status-ws", url="ws://localhost:8001/ws"),
+    # Websocket that listens for IV curve data
+    WebSocket(id="iv-curve-data-ws", url="ws://localhost:8001/measure_iv_curve"),
     dcc.Interval(id='interval-component', interval=1000, n_intervals=0), # Update every second
     dcc.Store(id='temperature-history', data=[], storage_type='session'),  # Store historical temperature data
     dcc.Store(id='cryostat-state', data={}),  # Store current cryostat state
+    dcc.Store(id='iv-curve-data', data={}),  # Store IV curve data
     NAVBAR,  # Include Navbar at the top
     dbc.Container([
         dbc.Row([
@@ -263,7 +281,8 @@ app.layout = html.Div([
 
             # Right Column (65%)
             dbc.Col([
-                        MONITORING_CARD,
+                        CRYOSTAT_MONITORING_CARD,
+                        ADDONS,
                     ], width=8)  # 8 out of 12 columns = ~65%
 
         ], className="gx-5")  # Adds spacing between columns

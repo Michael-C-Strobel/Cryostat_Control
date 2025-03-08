@@ -9,6 +9,14 @@ the usb port with
 The first time you share a usb port you need to enable sharing:
 ```usbipd bind --busid < busid >```
 Then you can share the device:
-```usbipd attach -wsl --busid < busid >```
+```usbipd attach --wsl --busid < busid >```
 
 You can check the shared devices with:
+
+
+
+Further WSL2 setup:
+Instal usbip
+```
+sudo apt install linux-tools-virtual hwdata
+```
