@@ -252,6 +252,7 @@ ADDONS = dbc.Card([
         IV_CURVE_CARD
     ])
 ])
+register_iv_curve_callbacks(app)
 
 # Layout with Two Columns
 app.layout = html.Div([
@@ -261,13 +262,9 @@ app.layout = html.Div([
     WebSocket(id="stop-temperature-schedule-ws", url="ws://localhost:8000/stop-temperature-schedule"),
     WebSocket(id="heaters-off-ws", url="ws://localhost:8000/heaters-off"),
     # Websocket to initialize connection
-    WebSocket(id="source-meter-initialize-connection-ws", url="ws://localhost:8001/initialize"),
-    # Websocket that lists for current status from source meter
-    WebSocket(id="source-meter-status-ws", url="ws://localhost:8001/ws"),
-    # Websocket that listens for IV curve data
-    WebSocket(id="iv-curve-data-ws", url="ws://localhost:8001/measure_iv_curve"),
-    # Websocket that gets options for sourcemeter connections
-    # WebSocket(id="sourcemeter-connections-ws", url="ws://localhost:8001/connection_options")
+    # WebSocket(id="source-meter-initialize-connection-ws", url="ws://localhost:8001/initialize"),
+    # # Websocket that lists for current status from source meter
+    # WebSocket(id="source-meter-status-ws", url="ws://localhost:8001/ws"),
     dcc.Interval(id='interval-component', interval=1000, n_intervals=0), # Update every second
     dcc.Store(id='temperature-history', data=[], storage_type='session'),  # Store historical temperature data
     dcc.Store(id='cryostat-state', data={}),  # Store current cryostat state
@@ -561,6 +558,50 @@ def stop_temperature_schedule(n_clicks):
         return {}
     
     return json.dumps({"command": "stop_temperature_schedule"})
+
+### Tell Things To Happen When we Hit Stable Temperature ###
+# @app.callback(
+#     Output('iv-curve-data', 'data'),  # Update IV curve data
+#     Input('ws', 'message'),  # WebSocket message input
+#     State('iv-curve-data', 'data'),  # Existing IV curve data
+#     State('sourcemeter-voltage-lower', 'value'),
+#     State('sourcemeter-voltage-upper', 'value'),
+#     State('sourcemeter-voltage-step', 'value'),
+#     prevent_initial_call=True
+# )
+# def handle_temperature_stability(message, iv_curve_data, lb, ub, step):
+#     if iv_curve_data is None:
+#         iv_curve_data = {}
+
+#     if not message:
+#         return iv_curve_data, {}  # No update if no message received
+
+#     try:
+#         data = json.loads(message["data"])  # Parse incoming message
+#         stable_temp = data.get("stable_temperature")
+
+#         if stable_temp is not None:
+#             logging.info(f"Received stable_temperature notification: {stable_temp}")
+#             # Update cryostat state
+#             cryostat_state = {"stable_temperature": stable_temp}
+
+#             # Check if temperature is stable and trigger IV curve measurement
+#             logging.warning("Temperature is stable, starting IV curve measurement...")
+#             voltages = list(range(lb, ub, step))
+            
+#             # Send voltages to the source meter (or WebSocket service) for IV curve measurement
+#             socket = WebSocket(id="iv-curve-data-ws", url="ws://keithley-2400-backend:8001/measure_iv_curve")
+#             socket.send_text(json.dumps({"voltages": voltages}))
+#             new_measurement = json.loads(socket.recv())
+#             iv_curve_data.update(new_measurement)  # Update the IV curve data with new measurement
+
+#             return iv_curve_data, cryostat_state  # Return updated IV curve data and cryostat state
+
+#     except Exception as e:
+#         logging.error(f"Error handling stable temperature message: {str(e)}")
+#         return iv_curve_data
+
+#     return iv_curve_data
 
 ### Emergency Stop ###
 @app.callback(

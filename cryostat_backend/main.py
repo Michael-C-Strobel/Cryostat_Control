@@ -32,9 +32,10 @@ async def get_status():
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
-    """ WebSocket endpoint that sends data to the frontend.
-    """
+    """ WebSocket endpoint that sends data to the frontend. """
     await websocket.accept()
+    # Add the connection to the active connections set
+    active_connections.add(websocket)
     try:
         while True:
             # Example: Sending structured JSON instead of empty data
@@ -46,6 +47,10 @@ async def websocket_endpoint(websocket: WebSocket):
     except Exception as e:
         raise e
         print(f"WebSocket error: {e}")
+    finally:
+        # Ensure the connection is removed from the active connections when it disconnects
+        active_connections.discard(websocket)
+
 
 
 @app.websocket("/set-heater-state")
@@ -98,7 +103,7 @@ async def websocket_start_temperature_schedule(websocket: WebSocket):
 
             setpoints = data.get("setpoints", [])
             threshold = data.get("threshold", 0.1)
-            sustain_on_exit   = data.get("sustain", False)
+            sustain_on_exit = data.get("sustain", False)
             hold_time = data.get("hold_time", 60)
 
             global temperature_scheduler
@@ -109,8 +114,7 @@ async def websocket_start_temperature_schedule(websocket: WebSocket):
                 asyncio.create_task(broadcast_temperature(temp))
 
             temperature_scheduler = TemperatureScheduler(cryo, heater_output=1, setpoints=setpoints, threshold=threshold, 
-                                    hold_time=hold_time,
-                                    sustain_on_exit=sustain_on_exit)
+                                    hold_time=hold_time, sustain_on_exit=sustain_on_exit)
             asyncio.create_task(temperature_scheduler.monitor_temperature(notify_callback))
 
             await websocket.send_text(json.dumps({"status": "Temperature schedule started"}))

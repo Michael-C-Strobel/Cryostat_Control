@@ -6,8 +6,11 @@ services:
       context: ./cryostat_backend
       dockerfile: Dockerfile
     container_name: cryostat-backend
-    devices:
-      - /dev/bus/usb:/dev/bus/usb  # Allow USB access (TODO: Check Mac compatibility)
+    volumes:
+      - /dev:/dev:rw   # Allow USB access on windows
+    group_add:
+      - dialout
+    privileged: true  # Required for GPIB communication
     ports:
       - "8000:8000"  # Expose FastAPI on port 8000
     networks:
@@ -18,7 +21,7 @@ services:
       interval: 5s
       timeout: 5s
       retries: 3
-      start_period: 5s
+      start_period: 10s
 
   keithley-2400-backend:
     build:
@@ -27,21 +30,19 @@ services:
     container_name: keithley-2400-backend
     devices:
       - /dev/bus/usb:/dev/bus/usb  # Allow USB access (TODO: Check Mac compatibility)
-      - /dev:/dev  # Allow access to other devices
-    volumes:
-      - /mnt/c/Windows/System32/com5:/dev/ttyS4
+      - /dev:/dev:rw  # Allow access to other devices
     privileged: true  # Required for GPIB communication
     ports:
       - "8001:8001"  # Expose FastAPI on port 8001
     networks:
       - instrument-net
     restart: unless-stopped
-    healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:8001/health || exit 1"]
-      interval: 5s
-      timeout: 5s
-      retries: 3
-      start_period: 5s
+    # healthcheck:
+    #   test: ["CMD-SHELL", "curl -f http://localhost:8001/health || exit 1"]
+    #   interval: 5s
+    #   timeout: 5s
+    #   retries: 3
+    #   start_period: 20s
 
   frontend:
     build:
@@ -53,8 +54,8 @@ services:
     depends_on:
       cyrostat-backend:
         condition: service_healthy
-      keithley-2400-backend: 
-        condition: service_healthy
+      # keithley-2400-backend: 
+      #   condition: service_healthy
     ports:
       - "8050:8050"  # Expose dash on port 8050
     networks:

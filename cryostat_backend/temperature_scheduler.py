@@ -34,7 +34,9 @@ class TemperatureScheduler:
                 await self.set_setpoint(current_setpoint)
 
                 while self.running:
+                    logging.warning("Checking Current T in loop")
                     current_temp = await self.get_temperature()
+                    logging.warning(f"Got current temp {current_temp}")
                     if abs(current_temp - current_setpoint) <= self.threshold:
                         logging.warning(f"Temperature {current_temp} is within threshold of setpoint {current_setpoint}")
                         await asyncio.sleep(self.hold_time)  # Hold for the specified time to get a measurement
@@ -49,7 +51,7 @@ class TemperatureScheduler:
                                 logging.warning("Program Complete. All heaters turned off.")
 
                         break
-                    await asyncio.sleep(1)  # Avoid tight CPU loop
+                    await asyncio.sleep(0.01)  # Avoid tight CPU loop
 
                 self.current_setpoint_index += 1
 
