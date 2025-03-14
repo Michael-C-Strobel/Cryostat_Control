@@ -5,6 +5,11 @@ from typing import List, Dict, Tuple
 import asyncio
 import logging
 
+import asyncio
+
+import numpy as np
+import time
+
 
 logging.basicConfig(level=logging.WARNING)
 
@@ -60,64 +65,108 @@ def fetch_status(source_meter: Keithley2400) -> Dict:
         logging.error(f"Error fetching status: {e}")
         return {}
 
-def set_voltage(source_meter: Keithley2400, voltage: float):
-    """Sets the voltage of the Keithley 2400 SourceMeter."""
-    if source_meter is None:
-        logging.error("SourceMeter not initialized in set_voltage()")
-        return
+def set_voltage(sourcemeter: Keithley2400, voltage: float) -> None:
+    """Sets the source voltage on the Keithley 2400."""
+    sourcemeter.source_voltage = voltage
 
-    try:
-        source_meter.voltage = voltage
-    except Exception as e:
-        prlogging.errorint(f"Error setting voltage: {e}")
+def measure_current(sourcemeter: Keithley2400) -> float:
+    """Measures the current using the Keithley 2400."""
+    return sourcemeter.current
 
-def measure_current(source_meter: Keithley2400) -> float:
-    """Measures the current from the Keithley 2400 SourceMeter."""
-    if source_meter is None:
-        logging.error("SourceMeter not initialized in measure_current()")
-        return
+async def perform_iv_measurement(source_meter: Keithley2400, 
+                                    start_voltage: float, 
+                                    stop_voltage: float, 
+                                    step_voltage: float, 
+                                    compliance_current: float, 
+                                    source_voltage_range: float) -> dict:
+    """
+    Performs an I-V (current-voltage) measurement using a Keithley 2400 SourceMeter over a specified voltage range.
 
-    try:
-        return source_meter.current
-    except Exception as e:
-        logging.error(f"Error measuring current: {e}")
-        return 0.0
+    This function configures the Keithley 2400 to source voltage and measure current. It then sweeps the voltage from
+    `start_voltage` to `stop_voltage` in increments of `step_voltage`, measuring the current at each voltage point.
+    It also attempts to retrieve and handle standard deviation measurements, if available from the instrument.
 
-async def perform_iv_measurement(source_meter, voltages: List[float]) -> dict:
-    """Perform the I-V measurement for the provided list of voltages, handling standard deviations."""
+    Args:
+        source_meter (Keithley2400): The Keithley 2400 instrument object, already initialized and connected.
+        start_voltage (float): The starting voltage (in Volts) for the I-V sweep.
+        stop_voltage (float): The ending voltage (in Volts) for the I-V sweep.
+        step_voltage (float): The voltage increment (in Volts) between measurement points.
+        compliance_current (float): The maximum allowed current (in Amperes) to protect the device under test.
+        source_voltage_range (float): The voltage range (in Volts) to be used by the Keithley 2400. This must be 
+                                      sufficient to cover the entire voltage sweep.
+
+    Returns:
+        dict: A dictionary containing the measurement results, with the following keys:
+            - "voltages": A list of voltage values (floats) at which the measurements were taken.
+            - "currents": A list of corresponding current values (floats) measured at each voltage.
+            - "voltage_stds": A list of standard deviation values (floats or None) associated with each voltage measurement.
+                              None is used if the standard deviation could not be retrieved or was invalid.
+
+    Raises:
+        Any exceptions raised by the Keithley 2400 instrument or the underlying communication adapter will be propagated.
+
+    Example:
+        async def main():
+            adapter = SerialAdapter('/dev/ttyUSB0', baudrate=9600)
+            keithley = Keithley2400(adapter)
+            results = await perform_iv_measurement(keithley, -1, 1, 0.1, 0.01, 5)
+            print(results)
+            keithley.shutdown()
+
+    """
     if source_meter is None:
         logging.error("SourceMeter not initialized in perform_iv_measurement()")
         return {}
 
-    # Prepare lists to store the measurement results
-    currents = []
-    voltage_stds = []
+    try:
+        source_meter.reset()
+        source_meter.use_front_terminals()
+        source_meter.apply_voltage()
+        source_meter.source_voltage_range = source_voltage_range
+        source_meter.compliance_current = compliance_current
+        source_meter.measure_current()
+        source_meter.enable_source()
 
-    for voltage in voltages:
-        set_voltage(source_meter, voltage)
-        await asyncio.sleep(0.1)  # Wait for the measurement to stabilize
-        
-        # Get the current measurement and the standard deviation (if available)
-        current = measure_current(source_meter)
-        
-        # Handle the standard deviation (assuming it's provided directly by the sourcemeter)
+        voltages = np.arange(start_voltage, stop_voltage + step_voltage, step_voltage).tolist() # Convert to list for consistent output.
+        currents = []
+        voltage_stds = []
+
+        for voltage in voltages:
+            set_voltage(source_meter, voltage)
+            await asyncio.sleep(0.1)  # Wait for the measurement to stabilize
+            current = measure_current(source_meter)
+
+            # Handle the standard deviation (if available)
+            try:
+                std_dev = source_meter.standard_devs[0]  # Assuming the standard deviation is stored in index 0
+                # Check for invalid values (e.g., `9.91e+37`)
+                if std_dev == 9.91e+37:
+                    logging.warning(f"Invalid standard deviation for voltage {voltage}V, skipping standard deviation.")
+                    std_dev = None
+            except Exception as e:
+                logging.error(f"Error reading standard deviation: {e}")
+                std_dev = None
+
+            currents.append(current)
+            voltage_stds.append(std_dev)
+
+        source_meter.disable_source()
+
+        output = {
+            "voltages": voltages,
+            "currents": currents,
+            "voltage_stds": voltage_stds
+        }
+
+        logging.warning(f"Returning output from IV measurement: {output}")
+        return output
+
+    except Exception as e:
+        logging.error(f"An error occurred during IV measurement: {e}")
+        return {}
+    finally:
         try:
-            std_dev = source_meter.standard_devs[0]  # Assuming the standard deviation is stored in index 0
-            # Check for invalid values (e.g., `9.91e+37`)
-            if std_dev == 9.91e+37:
-                logging.warning(f"Invalid standard deviation for voltage {voltage}V, skipping measurement.")
-                std_dev = None  # You can set to None or handle as needed
-        except Exception as e:
-            logging.error(f"Error reading standard deviation: {e}")
-            std_dev = None  # Fallback to None if there's an issue
+            source_meter.disable_source()
+        except:
+            pass
 
-        # Append the measurements and standard deviation
-        currents.append(current)
-        voltage_stds.append(std_dev)
-
-    # Return the results as a dictionary
-    return {
-        "voltages": voltages,
-        "currents": currents,
-        "voltage_stds": voltage_stds
-    }

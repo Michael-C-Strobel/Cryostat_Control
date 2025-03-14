@@ -40,3 +40,8 @@ Build with value set in Makefile
 ```
 make build-keithley
 ```
+
+
+Working:
+print(sourcemeter.ask("*IDN?\n"))
+

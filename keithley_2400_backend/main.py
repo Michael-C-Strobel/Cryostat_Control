@@ -18,69 +18,80 @@ active_connections = set()
 
 ###### Websocket Endpoints ######
 
-@app.websocket("/initialize")
-async def initialize_ws_connection(websocket: WebSocket):
-    """Initialize the connection to the Keithley 2400 SourceMeter."""
-    await websocket.accept()
+async def handle_initialize(websocket: WebSocket, data: dict):
+    """Handle SourceMeter initialization."""
     global source_meter
+    adapter = str(data.get("adapter", None))
+    logging.info(f"Initializing with adapter: {adapter}")
 
-    try:
-        data = await websocket.receive_json()
-        adapter = str(data.get("adapter", None))
-        logging.warning(f"got data {data}")
-        logging.warning(f"got adapter {adapter}")
+    if source_meter is None and adapter:
+        source_meter = await initialize_connection(adapter)  # Async initialization
 
-        if source_meter is None and adapter is not None:
-            logging.warning("Initializing Connection...")
-            source_meter = await initialize_connection(adapter)  # Adjusted for async initialization
-
-        if source_meter is None:
-            logging.error("Failed to connect to the Keithley 2400.")
-            await websocket.send_json({"status": "Failed to connect."})
-            await websocket.close()
-            return
-
+    if source_meter:
         await websocket.send_json({"status": "Connection initialized"})
-        active_connections.add(websocket)  # Track connection for real-time updates
+    else:
+        await websocket.send_json({"status": "Failed to connect"})
 
-    except Exception as e:
-        logging.error(f"Error initializing connection: {str(e)}")
-        await websocket.send_json({"status": "Error", "detail": str(e)})
-        await websocket.close()
-
-
-@app.websocket("/measure_iv_curve")
-async def measure_iv_curve(websocket: WebSocket, voltages: List[float]):
-    """Measure the current for a list of provided voltages and return the I-V curve."""
+async def handle_measure_iv_curve(websocket: WebSocket, data: dict):
+    """Handle IV curve measurement request."""
     if source_meter is None:
-        raise HTTPException(status_code=400, detail="SourceMeter not initialized.")
-    
+        await websocket.send_json({"error": "SourceMeter not initialized"})
+        return
+
     try:
-        logging.warning(f"Performing IV measurement in backend main.py {voltages}")
-        iv_curve = await perform_iv_measurement(source_meter, voltages)
+        start_voltage = data["start_voltage"]
+        stop_voltage = data["stop_voltage"]
+        step_voltage = data["step_voltage"]
+        compliance_current = data.get("compliance_current", 0.1)
+        source_voltage_range = data.get("source_voltage_range", 5.0)
+
+        logging.info(f"Measuring IV: start={start_voltage}, stop={stop_voltage}, step={step_voltage}")
+        iv_curve = await perform_iv_measurement(
+            source_meter, start_voltage, stop_voltage, step_voltage, compliance_current, source_voltage_range
+        )
         await websocket.send_json({"iv_curve": iv_curve})
     except Exception as e:
         logging.error(f"Error during IV measurement: {str(e)}")
         await websocket.send_json({"error": str(e)})
 
+async def handle_status(websocket: WebSocket):
+    """Send SourceMeter status."""
+    if source_meter:
+        status = fetch_status(source_meter)  # Fetch current device status
+        await websocket.send_json({"status": status})
+    else:
+        await websocket.send_json({"status": "No device connected"})
 
 @app.websocket("/ws")
-async def websocket_status(websocket: WebSocket):
-    """WebSocket endpoint that sends data to the frontend."""
+async def websocket_endpoint(websocket: WebSocket):
+    """Unified WebSocket endpoint handling multiple commands."""
     await websocket.accept()
+    active_connections.add(websocket)
+
     try:
         while True:
-            if source_meter:
-                message = json.dumps(fetch_status(source_meter))  # Send current status
-                await websocket.send_text(message)
-                await asyncio.sleep(0.1)  # Simulate real-time updates
+            data = await websocket.receive_json()
+            command = data.get("command")
+
+            command_handlers = {
+                "initialize": handle_initialize,
+                "measure_iv_curve": handle_measure_iv_curve,
+                "status": handle_status,
+            }
+
+            handler = command_handlers.get(command)
+            if handler:
+                await handler(websocket, data)
             else:
-                await asyncio.sleep(1)  # If no source meter, wait before trying again
+                await websocket.send_json({"error": "Unknown command"})
+
     except WebSocketDisconnect:
         active_connections.remove(websocket)
-        logging.info("Client disconnected.")
+        logging.info("Client disconnected")
     except Exception as e:
         logging.error(f"WebSocket error: {e}")
+    finally:
+        await websocket.close()
 
 
 ###### HTTP Endpoints ######

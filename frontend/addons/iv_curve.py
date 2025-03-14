@@ -38,15 +38,24 @@ IV_CURVE_CARD = dbc.Card(
             dbc.Row(
                 [
                     dbc.Col(
-                        dcc.Input(id="sourcemeter-voltage-lower", type="number", placeholder="Lower voltage", debounce=True, value=00.001),  # Prefixed ID
+                        [
+                            dbc.Label("Lower Voltage"),  # Label for the lower voltage input
+                            dcc.Input(id="sourcemeter-voltage-lower", type="number", placeholder="Lower voltage", debounce=True, value=-0.005),
+                        ], 
                         width=4
                     ),
                     dbc.Col(
-                        dcc.Input(id="sourcemeter-voltage-upper", type="number", placeholder="Upper voltage", debounce=True, value=0.001),  # Prefixed ID
+                        [
+                            dbc.Label("Upper Voltage"),  # Label for the upper voltage input
+                            dcc.Input(id="sourcemeter-voltage-upper", type="number", placeholder="Upper voltage", debounce=True, value=0.005),
+                        ], 
                         width=4
                     ),
                     dbc.Col(
-                        dcc.Input(id="sourcemeter-voltage-step", type="number", placeholder="Voltage step", debounce=True, value=0.0001),  # Prefixed ID
+                        [
+                            dbc.Label("Voltage Step"),  # Label for the voltage step input
+                            dcc.Input(id="sourcemeter-voltage-step", type="number", placeholder="Voltage step", debounce=True, value=0.001),
+                        ], 
                         width=4
                     )
                 ]

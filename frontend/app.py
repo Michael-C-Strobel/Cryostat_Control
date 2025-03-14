@@ -559,50 +559,6 @@ def stop_temperature_schedule(n_clicks):
     
     return json.dumps({"command": "stop_temperature_schedule"})
 
-### Tell Things To Happen When we Hit Stable Temperature ###
-# @app.callback(
-#     Output('iv-curve-data', 'data'),  # Update IV curve data
-#     Input('ws', 'message'),  # WebSocket message input
-#     State('iv-curve-data', 'data'),  # Existing IV curve data
-#     State('sourcemeter-voltage-lower', 'value'),
-#     State('sourcemeter-voltage-upper', 'value'),
-#     State('sourcemeter-voltage-step', 'value'),
-#     prevent_initial_call=True
-# )
-# def handle_temperature_stability(message, iv_curve_data, lb, ub, step):
-#     if iv_curve_data is None:
-#         iv_curve_data = {}
-
-#     if not message:
-#         return iv_curve_data, {}  # No update if no message received
-
-#     try:
-#         data = json.loads(message["data"])  # Parse incoming message
-#         stable_temp = data.get("stable_temperature")
-
-#         if stable_temp is not None:
-#             logging.info(f"Received stable_temperature notification: {stable_temp}")
-#             # Update cryostat state
-#             cryostat_state = {"stable_temperature": stable_temp}
-
-#             # Check if temperature is stable and trigger IV curve measurement
-#             logging.warning("Temperature is stable, starting IV curve measurement...")
-#             voltages = list(range(lb, ub, step))
-            
-#             # Send voltages to the source meter (or WebSocket service) for IV curve measurement
-#             socket = WebSocket(id="iv-curve-data-ws", url="ws://keithley-2400-backend:8001/measure_iv_curve")
-#             socket.send_text(json.dumps({"voltages": voltages}))
-#             new_measurement = json.loads(socket.recv())
-#             iv_curve_data.update(new_measurement)  # Update the IV curve data with new measurement
-
-#             return iv_curve_data, cryostat_state  # Return updated IV curve data and cryostat state
-
-#     except Exception as e:
-#         logging.error(f"Error handling stable temperature message: {str(e)}")
-#         return iv_curve_data
-
-#     return iv_curve_data
-
 ### Emergency Stop ###
 @app.callback(
     Output("heaters-off-ws", "send"),
