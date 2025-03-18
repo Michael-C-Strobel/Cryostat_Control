@@ -34,32 +34,55 @@ IV_CURVE_CARD = dbc.Card(
         # Card Header and Body for IV Curves
         dbc.CardHeader("IV Curves"),
         dbc.CardBody([
-            dcc.Graph(id="iv-curve-plot", config={"displayModeBar": False}),
-            dbc.Row(
-                [
-                    dbc.Col(
+                    dcc.Graph(id="iv-curve-plot", config={"displayModeBar": False}),
+                    dbc.Row(
                         [
-                            dbc.Label("Lower Voltage"),  # Label for the lower voltage input
-                            dcc.Input(id="sourcemeter-voltage-lower", type="number", placeholder="Lower voltage", debounce=True, value=-0.005),
-                        ], 
-                        width=4
+                            # Lower Voltage Input
+                            dbc.Col(
+                                [
+                                    dbc.Label("Lower Voltage"),
+                                    dbc.Input(id="sourcemeter-voltage-lower", type="number", placeholder="Lower voltage", debounce=True, value=-0.005),
+                                ], 
+                                width=4
+                            ),
+                            # Upper Voltage Input
+                            dbc.Col(
+                                [
+                                    dbc.Label("Upper Voltage"),
+                                    dbc.Input(id="sourcemeter-voltage-upper", type="number", placeholder="Upper voltage", debounce=True, value=0.005),
+                                ], 
+                                width=4
+                            ),
+                            # Voltage Step Input
+                            dbc.Col(
+                                [
+                                    dbc.Label("Voltage Step"),
+                                    dbc.Input(id="sourcemeter-voltage-step", type="number", placeholder="Voltage step", debounce=True, value=0.001),
+                                ], 
+                                width=4
+                            )
+                        ]
                     ),
-                    dbc.Col(
+                    dbc.Row(
                         [
-                            dbc.Label("Upper Voltage"),  # Label for the upper voltage input
-                            dcc.Input(id="sourcemeter-voltage-upper", type="number", placeholder="Upper voltage", debounce=True, value=0.005),
-                        ], 
-                        width=4
-                    ),
-                    dbc.Col(
-                        [
-                            dbc.Label("Voltage Step"),  # Label for the voltage step input
-                            dcc.Input(id="sourcemeter-voltage-step", type="number", placeholder="Voltage step", debounce=True, value=0.001),
-                        ], 
-                        width=4
+                            # Source Meter Compliance Current Input
+                            dbc.Col(
+                                [
+                                    dbc.Label("Compliance Current (A)"),
+                                    dbc.Input(id="sourcemeter-compliance-current", type="number", placeholder="Compliance current", debounce=True, value=0.1),
+                                ], 
+                                width=4
+                            ),
+                            # Source Meter Voltage Range Input
+                            dbc.Col(
+                                [
+                                    dbc.Label("Voltage Range (V)"),
+                                    dbc.Input(id="sourcemeter-voltage-range", type="number", placeholder="Voltage range", debounce=True, value=5),
+                                ], 
+                                width=4
+                            ),
+                        ]
                     )
-                ]
-            )
-        ])
+                ])
     ]
 )

@@ -73,18 +73,17 @@ def measure_current(sourcemeter: Keithley2400) -> float:
     """Measures the current using the Keithley 2400."""
     return sourcemeter.current
 
-async def perform_iv_measurement(source_meter: Keithley2400, 
-                                    start_voltage: float, 
-                                    stop_voltage: float, 
-                                    step_voltage: float, 
-                                    compliance_current: float, 
-                                    source_voltage_range: float) -> dict:
+async def perform_iv_measurement(source_meter: 'Keithley2400', 
+                                start_voltage: float, 
+                                stop_voltage: float, 
+                                step_voltage: float, 
+                                compliance_current: float, 
+                                source_voltage_range: float,
+                                num_averages: int = 10,
+                                nplc: float = 1) -> dict:
     """
-    Performs an I-V (current-voltage) measurement using a Keithley 2400 SourceMeter over a specified voltage range.
-
-    This function configures the Keithley 2400 to source voltage and measure current. It then sweeps the voltage from
-    `start_voltage` to `stop_voltage` in increments of `step_voltage`, measuring the current at each voltage point.
-    It also attempts to retrieve and handle standard deviation measurements, if available from the instrument.
+    Performs an I-V (current-voltage) measurement using a Keithley 2400 SourceMeter over a specified voltage range,
+    utilizing the instrument's built-in averaging and NPLC settings.
 
     Args:
         source_meter (Keithley2400): The Keithley 2400 instrument object, already initialized and connected.
@@ -92,27 +91,13 @@ async def perform_iv_measurement(source_meter: Keithley2400,
         stop_voltage (float): The ending voltage (in Volts) for the I-V sweep.
         step_voltage (float): The voltage increment (in Volts) between measurement points.
         compliance_current (float): The maximum allowed current (in Amperes) to protect the device under test.
-        source_voltage_range (float): The voltage range (in Volts) to be used by the Keithley 2400. This must be 
-                                      sufficient to cover the entire voltage sweep.
-
+        source_voltage_range (float): The voltage range (in Volts) to be used by the Keithley 2400.
+        num_averages (int): The number of measurements to average at each voltage point.
+        nplc (float): Number of power line cycles (NPLC) for noise reduction.
     Returns:
         dict: A dictionary containing the measurement results, with the following keys:
             - "voltages": A list of voltage values (floats) at which the measurements were taken.
-            - "currents": A list of corresponding current values (floats) measured at each voltage.
-            - "voltage_stds": A list of standard deviation values (floats or None) associated with each voltage measurement.
-                              None is used if the standard deviation could not be retrieved or was invalid.
-
-    Raises:
-        Any exceptions raised by the Keithley 2400 instrument or the underlying communication adapter will be propagated.
-
-    Example:
-        async def main():
-            adapter = SerialAdapter('/dev/ttyUSB0', baudrate=9600)
-            keithley = Keithley2400(adapter)
-            results = await perform_iv_measurement(keithley, -1, 1, 0.1, 0.01, 5)
-            print(results)
-            keithley.shutdown()
-
+            - "average_currents": A list of corresponding average current values (floats) measured at each voltage.
     """
     if source_meter is None:
         logging.error("SourceMeter not initialized in perform_iv_measurement()")
@@ -121,41 +106,28 @@ async def perform_iv_measurement(source_meter: Keithley2400,
     try:
         source_meter.reset()
         source_meter.use_front_terminals()
-        source_meter.apply_voltage()
-        source_meter.source_voltage_range = source_voltage_range
-        source_meter.compliance_current = compliance_current
-        source_meter.measure_current()
+        source_meter.apply_voltage(voltage_range=source_voltage_range, compliance_current=compliance_current)
+        source_meter.measure_current(nplc=nplc)
+        source_meter.filter_count = num_averages
+        source_meter.filter_state = "ON"
+        source_meter.filter_type = "REP" # Repeat filter
         source_meter.enable_source()
+        source_meter.auto_output_off = False #keep output on during sweep
 
-        voltages = np.arange(start_voltage, stop_voltage + step_voltage, step_voltage).tolist() # Convert to list for consistent output.
-        currents = []
-        voltage_stds = []
+        voltages = np.arange(start_voltage, stop_voltage + step_voltage, step_voltage).tolist()
+        average_currents = []
 
         for voltage in voltages:
-            set_voltage(source_meter, voltage)
-            await asyncio.sleep(0.1)  # Wait for the measurement to stabilize
-            current = measure_current(source_meter)
-
-            # Handle the standard deviation (if available)
-            try:
-                std_dev = source_meter.standard_devs[0]  # Assuming the standard deviation is stored in index 0
-                # Check for invalid values (e.g., `9.91e+37`)
-                if std_dev == 9.91e+37:
-                    logging.warning(f"Invalid standard deviation for voltage {voltage}V, skipping standard deviation.")
-                    std_dev = None
-            except Exception as e:
-                logging.error(f"Error reading standard deviation: {e}")
-                std_dev = None
-
-            currents.append(current)
-            voltage_stds.append(std_dev)
+            source_meter.source_voltage = voltage
+            await asyncio.sleep(0.1)  # Allow time to settle
+            average_currents.append(source_meter.current)
 
         source_meter.disable_source()
+        source_meter.filter_state = "OFF" #turn off filter.
 
         output = {
             "voltages": voltages,
-            "currents": currents,
-            "voltage_stds": voltage_stds
+            "currents": average_currents,
         }
 
         logging.warning(f"Returning output from IV measurement: {output}")
@@ -167,6 +139,7 @@ async def perform_iv_measurement(source_meter: Keithley2400,
     finally:
         try:
             source_meter.disable_source()
+            source_meter.filter_state = "OFF"
         except:
             pass
 

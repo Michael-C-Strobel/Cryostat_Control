@@ -41,7 +41,7 @@ async def websocket_endpoint(websocket: WebSocket):
             # Example: Sending structured JSON instead of empty data
             message = json.dumps(fetch_status(cryo))
             await websocket.send_text(message)
-            await asyncio.sleep(0.1)  # Simulate real-time updates
+            await asyncio.sleep(0.25)  # Simulate real-time updates
     except WebSocketDisconnect:
         print("Client disconnected")
     except Exception as e:

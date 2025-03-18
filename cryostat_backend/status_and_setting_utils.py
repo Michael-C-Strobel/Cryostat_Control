@@ -12,7 +12,7 @@ def initialize_connection(port=57600):
         Model335 instance.
     """
     try:
-        cryo = Model335(port, timeout=20.0)
+        cryo = Model335(port, timeout=60.0)
         return cryo
     except Exception as e:
         print(f"Error initializing connection: {e}")

@@ -123,7 +123,7 @@ def register_callbacks(app):
 
         for temp, data in iv_curve_data.items():
             fig_iv.add_trace(go.Scatter(x=data['voltages'], y=data['currents'], mode='lines', name=f'Temp {temp}'))
-            resistance = [v / i if i != 0 else None for v, i in zip(data['voltages'], data['currents'])]
+            resistance = [v / i if i != 0 and ((not isinstance(i, str)) and (not isinstance(v, str)))else None for v, i in zip(data['voltages'], data['currents'])]
             fig_resistance.add_trace(go.Scatter(x=[temp] * len(resistance), y=resistance, mode='lines', name=f'Temp {temp}'))
 
         # Update layout with x and y axis labels
@@ -154,6 +154,8 @@ def register_callbacks(app):
 
         # Parse incoming WebSocket message
         data = json.loads(message["data"])
+        if 'heater_setup' not in data.keys():
+            logging.warning(f'Message data {data}')
         stable_temp = data.get("stable_temperature")
         
         if stable_temp is not None:

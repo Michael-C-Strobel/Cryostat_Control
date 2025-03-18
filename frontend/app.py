@@ -187,7 +187,7 @@ sustain_on_end = html.Div([
         dbc.Col(
             dbc.Checklist(
                 id="sustain-on-end",
-                options=[{"label": "Sustain on End", "value": True}],
+                options=[{"label": None, "value": True}],
                 value=[],
                 switch=True
             ),
@@ -234,7 +234,7 @@ CONTRIBUTORS_CARD = dbc.Card([
 CRYOSTAT_MONITORING_CARD = dbc.Card([
     dbc.CardHeader("Cryostat Status"),
     dbc.CardBody([
-        html.H5("Temperature (Celsius):"),
+        html.H5("Temperature:"),
         html.Div(id="temperature", className="mb-2"),
         html.H5("Heater Output:"),
         html.Div(id="heater-output", className="mb-2"),
@@ -256,11 +256,11 @@ register_iv_curve_callbacks(app)
 
 # Layout with Two Columns
 app.layout = html.Div([
-    WebSocket(id="ws", url="ws://localhost:8000/ws"),  # Initialize backend connection
-    WebSocket(id="set-heater-state-ws", url="ws://localhost:8000/set-heater-state"),
-    WebSocket(id="start-temperature-schedule-ws", url="ws://localhost:8000/start-temperature-schedule"),
-    WebSocket(id="stop-temperature-schedule-ws", url="ws://localhost:8000/stop-temperature-schedule"),
-    WebSocket(id="heaters-off-ws", url="ws://localhost:8000/heaters-off"),
+    WebSocket(id="ws", url="ws://cryostat-backend:8000/ws"),  # Initialize backend connection
+    WebSocket(id="set-heater-state-ws", url="ws://cryostat-backend:8000/set-heater-state"),
+    WebSocket(id="start-temperature-schedule-ws", url="ws://cryostat-backend:8000/start-temperature-schedule"),
+    WebSocket(id="stop-temperature-schedule-ws", url="ws://cryostat-backend:8000/stop-temperature-schedule"),
+    WebSocket(id="heaters-off-ws", url="ws://cryostat-backend:8000/heaters-off"),
     # Websocket to initialize connection
     # WebSocket(id="source-meter-initialize-connection-ws", url="ws://localhost:8001/initialize"),
     # # Websocket that lists for current status from source meter
@@ -433,7 +433,7 @@ def update_temperature(curr_state, n_intervals):
         return "No data available"
     sensor_1 = temperature_data.get("sensor_1")
     sensor_2 = temperature_data.get("sensor_2")
-    return f"Sensor 1: {sensor_1} °C, Sensor 2: {sensor_2} °C"
+    return f"Sensor 1: {sensor_1} °K, Sensor 2: {sensor_2} °K"
     
 @app.callback(
     Output("heater-output", "children"),
