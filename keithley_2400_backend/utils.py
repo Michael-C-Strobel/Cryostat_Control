@@ -9,6 +9,8 @@ import asyncio
 
 import numpy as np
 import time
+import traceback
+
 
 
 logging.basicConfig(level=logging.WARNING)
@@ -73,7 +75,7 @@ def measure_current(sourcemeter: Keithley2400) -> float:
     """Measures the current using the Keithley 2400."""
     return sourcemeter.current
 
-async def perform_iv_measurement(source_meter: 'Keithley2400', 
+async def perform_iv_measurement_voltage_sweep(source_meter: 'Keithley2400', 
                                 start_voltage: float, 
                                 stop_voltage: float, 
                                 step_voltage: float, 
@@ -134,7 +136,11 @@ async def perform_iv_measurement(source_meter: 'Keithley2400',
         return output
 
     except Exception as e:
-        logging.error(f"An error occurred during IV measurement: {e}")
+        # Get the stack trace
+        stack_trace = traceback.format_exc()
+        
+        # Log the error with the first few frames of the stack trace
+        logging.error(f"An error occurred during IV measurement: {e}\nStack trace:\n{stack_trace.splitlines()[:5]}")
         return {}
     finally:
         try:
@@ -143,3 +149,78 @@ async def perform_iv_measurement(source_meter: 'Keithley2400',
         except:
             pass
 
+
+async def perform_iv_measurement_current_sweep(source_meter: 'Keithley2400', 
+                                 start_current: float, 
+                                 stop_current: float, 
+                                 step_current: float, 
+                                 compliance_voltage: float, 
+                                 source_current_range: float,
+                                 num_averages: int = 10,
+                                 nplc: float = 1) -> dict:
+    """
+    Performs an I-V (current-voltage) measurement using a Keithley 2400 SourceMeter over a specified current range,
+    utilizing the instrument's built-in averaging and NPLC settings.
+
+    Args:
+        source_meter (Keithley2400): The Keithley 2400 instrument object, already initialized and connected.
+        start_current (float): The starting current (in Amperes) for the sweep.
+        stop_current (float): The ending current (in Amperes) for the sweep.
+        step_current (float): The current increment (in Amperes) between measurement points.
+        compliance_voltage (float): The maximum allowed voltage (in Volts) to protect the device under test.
+        source_current_range (float): The current range (in Amperes) to be used by the Keithley 2400.
+        num_averages (int): The number of measurements to average at each current point.
+        nplc (float): Number of power line cycles (NPLC) for noise reduction.
+    
+    Returns:
+        dict: A dictionary containing the measurement results, with the following keys:
+            - "currents": A list of current values (floats) at which the measurements were taken.
+            - "voltages": A list of corresponding average voltage values (floats) measured at each current.
+    """
+    if source_meter is None:
+        logging.error("SourceMeter not initialized in perform_iv_measurement_current_sweep()")
+        return {}
+
+    try:
+        source_meter.reset()
+        source_meter.use_front_terminals()
+        source_meter.apply_current(current_range=source_current_range, compliance_voltage=compliance_voltage)
+        source_meter.measure_voltage(nplc=nplc)
+        source_meter.filter_count = num_averages
+        source_meter.filter_state = "ON"
+        source_meter.filter_type = "REP" # Repeat filter
+        source_meter.enable_source()
+        source_meter.auto_output_off = False  # Keep output on during sweep
+
+        currents = np.arange(start_current, stop_current + step_current, step_current).tolist()
+        average_voltages = []
+
+        for current in currents:
+            source_meter.source_current = current
+            await asyncio.sleep(0.1)  # Allow time to settle
+            average_voltages.append(source_meter.voltage)
+
+        source_meter.disable_source()
+        source_meter.filter_state = "OFF"  # Turn off filter.
+
+        output = {
+            "currents": currents,
+            "voltages": average_voltages,
+        }
+
+        logging.warning(f"Returning output from IV measurement (current sweep): {output}")
+        return output
+
+    except Exception as e:
+        # Get the stack trace
+        stack_trace = traceback.format_exc()
+        
+        # Log the error with the first few frames of the stack trace
+        logging.error(f"An error occurred during IV measurement: {e}\nStack trace:\n{stack_trace.splitlines()[:5]}")
+        return {}
+    finally:
+        try:
+            source_meter.disable_source()
+            source_meter.filter_state = "OFF"
+        except:
+            pass

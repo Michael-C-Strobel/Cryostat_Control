@@ -128,6 +128,16 @@ async def websocket_start_temperature_schedule(websocket: WebSocket):
 async def broadcast_temperature(temp):
     """Notify all connected WebSocket clients about temperature stability."""
     message = json.dumps({"stable_temperature": temp})
+    logging.warning(f"Broadcasting message: {message} to {len(active_connections)} connections")
+
+    for connection in list(active_connections):  # Iterate over a copy to avoid modification issues
+        try:
+            logging.info(f"Sending to connection: {connection.client}")
+            await connection.send_text(message)
+        except Exception as e:
+            logging.error(f"Failed to send message to connection {connection.client}: {e}")
+            active_connections.discard(connection)  # Remove dead connections
+
     for connection in active_connections:
         try:
             await connection.send_text(message)

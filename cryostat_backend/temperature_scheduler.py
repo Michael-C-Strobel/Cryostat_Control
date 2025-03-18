@@ -39,8 +39,9 @@ class TemperatureScheduler:
                     logging.warning(f"Got current temp {current_temp}")
                     if abs(current_temp - current_setpoint) <= self.threshold:
                         logging.warning(f"Temperature {current_temp} is within threshold of setpoint {current_setpoint}")
-                        await asyncio.sleep(self.hold_time)  # Hold for the specified time to get a measurement
                         callback(current_temp)  # Notify via callback
+                        await asyncio.sleep(self.hold_time)  # Hold for the specified time to get a measurement
+
                         # If this is the last set point, exit
                         if self.current_setpoint_index == len(self.setpoints) - 1:
                             self.running = False

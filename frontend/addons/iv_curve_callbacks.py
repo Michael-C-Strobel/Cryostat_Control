@@ -11,6 +11,7 @@ import websockets
 import requests
 from dash.exceptions import PreventUpdate
 import numpy as np
+import base64
 
 # Asynchronous WebSocket function for connection
 async def send_websocket_request(command, payload={}):
@@ -122,6 +123,7 @@ def register_callbacks(app):
         logging.warning(f"Recieved the following input data {iv_curve_data}")
 
         for temp, data in iv_curve_data.items():
+            logging.warning(f"Plotting temp {temp}, data {data}")
             fig_iv.add_trace(go.Scatter(x=data['voltages'], y=data['currents'], mode='lines', name=f'Temp {temp}'))
             resistance = [v / i if i != 0 and ((not isinstance(i, str)) and (not isinstance(v, str)))else None for v, i in zip(data['voltages'], data['currents'])]
             fig_resistance.add_trace(go.Scatter(x=[temp] * len(resistance), y=resistance, mode='lines', name=f'Temp {temp}'))
@@ -153,13 +155,21 @@ def register_callbacks(app):
             raise dash.exceptions.PreventUpdate
 
         # Parse incoming WebSocket message
-        data = json.loads(message["data"])
+        try:
+            data = json.loads(message["data"])
+        except json.JSONDecodeError as e:
+            logging.error(f"Failed to parse WebSocket message: {str(e)}")
+            raise dash.exceptions.PreventUpdate
+
         if 'heater_setup' not in data.keys():
-            logging.warning(f'Message data {data}')
-        stable_temp = data.get("stable_temperature")
+            logging.warning(f'Unexpected message data: {data}')
         
+        stable_temp = data.get("stable_temperature")
+        if stable_temp is None:
+            return None
+
         if stable_temp is not None:
-            logging.warning(f"Received stable_temperature notification: {data}")
+            logging.info(f"Received stable_temperature notification: {data}")
 
             if step == 0.0:
                 logging.error("SourceMeter Voltage Step was Zero")
@@ -178,8 +188,12 @@ def register_callbacks(app):
                     "source_voltage_range": 20  # Default voltage range TODO
                 }))
 
+                logging.warning(f"Got Result in Frontend: {result}")
+
                 if "iv_curve" in result:
-                    iv_curve_data['stable_temp'] = result["iv_curve"]
+                    iv_curve_data[str(stable_temp)] = result["iv_curve"]  # Use temperature as the key
+                    logging.warning(f"Updated iv_curve_data: {iv_curve_data}")
+                    return iv_curve_data
                 else:
                     logging.error(f"IV curve measurement error: {result}")
                     raise dash.exceptions.PreventUpdate
@@ -188,8 +202,7 @@ def register_callbacks(app):
                 logging.error(f"Error during IV curve measurement: {str(e)}")
                 raise dash.exceptions.PreventUpdate
 
-            return iv_curve_data
-
+        logging.error("I should not have gotten here handle_stability_notification()")
         raise dash.exceptions.PreventUpdate
 
     # Callback for the manual IV curve measurement button
@@ -236,3 +249,22 @@ def register_callbacks(app):
             return dash.no_update
 
         return iv_curve_data
+
+    @app.callback(
+        Output("iv-curve-download", "data"),  # This triggers the download
+        Input("iv-curve-download-button", "n_clicks"),
+        State("iv-curve-data", "data"),  # The data you want to download
+    )
+    def download_iv_curve_data(n_clicks, iv_curve_data):
+        if n_clicks is None or iv_curve_data is None:
+            return dash.no_update  # Don't do anything if no click or data
+        
+        # Convert the IV curve data to JSON with indentation for readability
+        iv_curve_json = json.dumps(iv_curve_data, indent=4)
+        
+        # Return the JSON as plain text with the appropriate filename
+        return dict(content=iv_curve_json, filename="iv_curve_data.json")
+
+
+    if __name__ == "__main__":
+        app.run_server(debug=True)

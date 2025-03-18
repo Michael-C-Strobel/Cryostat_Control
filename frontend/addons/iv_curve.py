@@ -35,13 +35,17 @@ IV_CURVE_CARD = dbc.Card(
         dbc.CardHeader("IV Curves"),
         dbc.CardBody([
                     dcc.Graph(id="iv-curve-plot", config={"displayModeBar": False}),
+                    # Download Link for Data (iv-curve-download-button)
+                    dbc.Button("Download IV Curve Data", id="iv-curve-download-button", color="primary"),
+                    dcc.Download(id="iv-curve-download"),  # Download component to trigger the download
+                    
                     dbc.Row(
                         [
                             # Lower Voltage Input
                             dbc.Col(
                                 [
                                     dbc.Label("Lower Voltage"),
-                                    dbc.Input(id="sourcemeter-voltage-lower", type="number", placeholder="Lower voltage", debounce=True, value=-0.005),
+                                    dbc.Input(id="sourcemeter-voltage-lower", type="number", placeholder="Lower voltage", debounce=True, value=-0.05),
                                 ], 
                                 width=4
                             ),
@@ -49,7 +53,7 @@ IV_CURVE_CARD = dbc.Card(
                             dbc.Col(
                                 [
                                     dbc.Label("Upper Voltage"),
-                                    dbc.Input(id="sourcemeter-voltage-upper", type="number", placeholder="Upper voltage", debounce=True, value=0.005),
+                                    dbc.Input(id="sourcemeter-voltage-upper", type="number", placeholder="Upper voltage", debounce=True, value=0.05),
                                 ], 
                                 width=4
                             ),
@@ -57,7 +61,7 @@ IV_CURVE_CARD = dbc.Card(
                             dbc.Col(
                                 [
                                     dbc.Label("Voltage Step"),
-                                    dbc.Input(id="sourcemeter-voltage-step", type="number", placeholder="Voltage step", debounce=True, value=0.001),
+                                    dbc.Input(id="sourcemeter-voltage-step", type="number", placeholder="Voltage step", debounce=True, value=0.01),
                                 ], 
                                 width=4
                             )

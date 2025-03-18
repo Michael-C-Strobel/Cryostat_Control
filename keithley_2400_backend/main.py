@@ -46,7 +46,7 @@ async def handle_measure_iv_curve(websocket: WebSocket, data: dict):
         source_voltage_range = data.get("source_voltage_range", 5.0)
 
         logging.info(f"Measuring IV: start={start_voltage}, stop={stop_voltage}, step={step_voltage}")
-        iv_curve = await perform_iv_measurement(
+        iv_curve = await perform_iv_measurement_voltage_sweep(
             source_meter, start_voltage, stop_voltage, step_voltage, compliance_current, source_voltage_range
         )
         await websocket.send_json({"iv_curve": iv_curve})

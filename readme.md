@@ -30,3 +30,5 @@ Note: If using VSCode, your port may vary, check the relevant links in the ports
 - [ ] Persistence without session
 - [ ] Companion App to Automatically Port Forward and Open Interface
 - [ ] Addition Add-Ons
+- [ ] Expose remaining Keithley 2400 Options to interface (`num_averages`, `nplc`)
+- [ ] Dynamically hold Cryostat until measurement is complete (currently holds for 60 seconds regardless)
