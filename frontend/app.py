@@ -9,6 +9,7 @@ import logging
 from datetime import datetime
 import pandas as pd
 from dash import dash_table
+from dash_extensions.enrich import DashProxy, BlockingCallbackTransform
 
 # IV Curve bits
 from addons.iv_curve_callbacks import register_callbacks as register_iv_curve_callbacks
@@ -18,7 +19,8 @@ from addons.iv_curve import IV_CURVE_CARD
 logging.basicConfig(level=logging.DEBUG)
 
 # Initialize Dash app
-app = dash.Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP])
+app = DashProxy(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP],
+                transforms=[BlockingCallbackTransform(timeout=60)])
 
 # Navbar with Logo
 NAVBAR = dbc.Navbar([
@@ -249,14 +251,15 @@ CRYOSTAT_MONITORING_CARD = dbc.Card([
 ADDONS = dbc.Card([
     dbc.CardHeader("Addons"),
     dbc.CardBody([
-        IV_CURVE_CARD
+        IV_CURVE_CARD,
+        html.Div(id="iv-curve-debug")
     ])
 ])
 register_iv_curve_callbacks(app)
 
 # Layout with Two Columns
 app.layout = html.Div([
-    WebSocket(id="ws", url="ws://localhost:8000/ws"),  # Initialize backend connection
+    WebSocket(id="ws", url="ws://localhost:8000/ws", timeout=5_000),  # Initialize backend connection, 5 sec timeout
     WebSocket(id="set-heater-state-ws", url="ws://localhost:8000/set-heater-state"),
     WebSocket(id="start-temperature-schedule-ws", url="ws://localhost:8000/start-temperature-schedule"),
     WebSocket(id="stop-temperature-schedule-ws", url="ws://localhost:8000/stop-temperature-schedule"),
@@ -266,9 +269,9 @@ app.layout = html.Div([
     # # Websocket that lists for current status from source meter
     # WebSocket(id="source-meter-status-ws", url="ws://localhost:8001/ws"),
     dcc.Interval(id='interval-component', interval=1000, n_intervals=0), # Update every second
-    dcc.Store(id='temperature-history', data=[], storage_type='session'),  # Store historical temperature data
-    dcc.Store(id='cryostat-state', data={}),  # Store current cryostat state
-    dcc.Store(id='iv-curve-data', data={}),  # Store IV curve data
+    dcc.Store(id='temperature-history', data=[], storage_type='session'),  # Store historical temperature data  # TODO: Set to local for all
+    dcc.Store(id='cryostat-state', data=dict(), storage_type='session'),  # Store current cryostat state
+    dcc.Store(id='iv-curve-data', data=dict(), storage_type='session'),  # Store IV curve data
     NAVBAR,  # Include Navbar at the top
     dbc.Container([
         dbc.Row([
@@ -299,8 +302,12 @@ app.layout = html.Div([
 )
 def update_status(n_intervals, message, temp_history):
     """Update the status and plot using the WebSocket message data."""
+
+    if not temp_history:
+        temp_history = []
+
     if not message:
-        return {}, {}, []
+        return {}, {}, temp_history
    
     data = json.loads(message["data"])
     heater_setup = data.get("heater_setup")
@@ -327,8 +334,6 @@ def update_status(n_intervals, message, temp_history):
         "time": current_time,
         "heater_range": heater_range,
     }
-
-    # logging.debug(f"Setting Current State {curr_state}")
 
     # Append the temperature and timestamp as a dict
     temp_history.append({
@@ -423,10 +428,10 @@ def set_heater_state(n_clicks,
 ### Listeners for dashboard fields ###
 @app.callback(
     Output("temperature", "children"),
-    State("cryostat-state", "data"),
     Input("interval-component", "n_intervals"),
+        State("cryostat-state", "data"),
 )
-def update_temperature(curr_state, n_intervals):
+def update_temperature(n_intervals, curr_state):
     """Update the temperature display."""
     temperature_data = curr_state.get("temperature")
     if not temperature_data:
@@ -437,10 +442,10 @@ def update_temperature(curr_state, n_intervals):
     
 @app.callback(
     Output("heater-output", "children"),
-    State("cryostat-state", "data"),
     Input("interval-component", "n_intervals"),
+    State("cryostat-state", "data"),
 )
-def update_heater_output(curr_state, n_intervals):
+def update_heater_output(n_intervals, curr_state):
     """Update the heater output display."""
     heater_output_data = curr_state.get("heater_output")
     if not heater_output_data:
@@ -450,10 +455,10 @@ def update_heater_output(curr_state, n_intervals):
 
 @app.callback(
     Output("pid-settings", "children"),
-    State("cryostat-state", "data"),
     Input("interval-component", "n_intervals"),
+    State("cryostat-state", "data"),
 )
-def update_pid_settings(curr_state, n_intervals):
+def update_pid_settings(n_intervals, curr_state):
     """Update the PID settings display."""
     pid_data = curr_state.get("pid")
     if not pid_data:
@@ -463,10 +468,10 @@ def update_pid_settings(curr_state, n_intervals):
 
 @app.callback(
     Output("heater-setup", "children"),
-    State("cryostat-state", "data"),
     Input("interval-component", "n_intervals"),
+    State("cryostat-state", "data"),
 )
-def update_heater_setup(curr_state, n_intervals):
+def update_heater_setup(n_intervals, curr_state):
     """Update the heater setup display."""
     heater_setup = curr_state.get("heater_setup")
     if not heater_setup:
@@ -578,5 +583,5 @@ def turn_off_heaters(n_clicks):
 
 # Run the app
 if __name__ == "__main__":
-    app.run_server(debug=True, host="0.0.0.0", port=8050)
+    app.run(debug=True, host="0.0.0.0", port=8050)
     logging.info("Dash Web App is Running at http://localhost:8050/")

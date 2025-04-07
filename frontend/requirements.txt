@@ -5,3 +5,4 @@ plotly
 websockets
 dash-extensions
 dash-bootstrap-components 
+dash[celery]

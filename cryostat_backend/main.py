@@ -25,7 +25,8 @@ temperature_scheduler = None
 async def get_status():
     """Fetch temperature and heater output."""
     try:
-        return json.dumps(fetch_status(cryo))
+        status = fetch_status(cryo)
+        return json.dumps(status)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -39,7 +40,8 @@ async def websocket_endpoint(websocket: WebSocket):
     try:
         while True:
             # Example: Sending structured JSON instead of empty data
-            message = json.dumps(fetch_status(cryo))
+            status = fetch_status(cryo)
+            message = json.dumps(status)
             await websocket.send_text(message)
             await asyncio.sleep(0.25)  # Simulate real-time updates
     except WebSocketDisconnect:

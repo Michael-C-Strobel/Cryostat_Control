@@ -45,3 +45,4 @@ make build-keithley
 Working:
 print(sourcemeter.ask("*IDN?\n"))
 
+ssh -L 8050:localhost:8050 -L 8000:localhost:8000 -L 8001:localhost:8001 uci-instrument-computer

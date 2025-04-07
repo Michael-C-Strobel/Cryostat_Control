@@ -114,13 +114,15 @@ def register_callbacks(app):
         Input("iv-curve-data", "data"),
     )
     def update_iv_curve_graph(iv_curve_data):
-        if iv_curve_data is None:
+        if len(iv_curve_data) == 0 or iv_curve_data is None:
             return go.Figure()
 
         fig_iv = go.Figure()
         fig_resistance = go.Figure()
 
         logging.warning(f"Recieved the following input data {iv_curve_data}")
+
+        iv_curve_data = iv_curve_data[0]
 
         for temp, data in iv_curve_data.items():
             logging.warning(f"Plotting temp {temp}, data {data}")
@@ -139,20 +141,26 @@ def register_callbacks(app):
 
     # WebSocket message handler for handling real-time stability notifications
     @app.callback(
-        Output("iv-curve-data", "data", allow_duplicate=True),
-        State("iv-curve-data", "data"),
+        Output("iv-curve-data", "data"),#, allow_duplicate=True),
         Input("ws", "message"),  # Listening to messages from the WebSocket
+        State("iv-curve-data", "data"),
         State("sourcemeter-voltage-lower", "value"),
         State("sourcemeter-voltage-upper", "value"),
         State("sourcemeter-voltage-step", "value"),
+        # background=True,
+        blocking=True,
         prevent_initial_call=True
     )
-    def handle_stability_notification(iv_curve_data, message, lb, ub, step):
+    def handle_stability_notification(message, iv_curve_data, lb, ub, step):
         if iv_curve_data is None:
             iv_curve_data = {}
 
+        # Copy so dash will detect changes
+        iv_curve_data = iv_curve_data.copy()
+
         if not message:
             raise dash.exceptions.PreventUpdate
+            return dash.no_update
 
         # Parse incoming WebSocket message
         try:
@@ -160,13 +168,15 @@ def register_callbacks(app):
         except json.JSONDecodeError as e:
             logging.error(f"Failed to parse WebSocket message: {str(e)}")
             raise dash.exceptions.PreventUpdate
+            return dash.no_update
 
         if 'heater_setup' not in data.keys():
             logging.warning(f'Unexpected message data: {data}')
         
         stable_temp = data.get("stable_temperature")
         if stable_temp is None:
-            return None
+            raise dash.exceptions.PreventUpdate
+            return dash.no_update
 
         if stable_temp is not None:
             logging.info(f"Received stable_temperature notification: {data}")
@@ -174,6 +184,7 @@ def register_callbacks(app):
             if step == 0.0:
                 logging.error("SourceMeter Voltage Step was Zero")
                 raise dash.exceptions.PreventUpdate
+                return dash.no_update
 
             # Define voltage sweep range
             voltages = list(np.arange(float(lb), float(ub), float(step)))
@@ -181,6 +192,7 @@ def register_callbacks(app):
             # Send WebSocket request for IV curve measurement
             try:
                 result = asyncio.run(send_websocket_request("measure_iv_curve", {
+                    "key": str(stable_temp),
                     "start_voltage": voltages[0],
                     "stop_voltage": voltages[-1],
                     "step_voltage": step,
@@ -190,65 +202,78 @@ def register_callbacks(app):
 
                 logging.warning(f"Got Result in Frontend: {result}")
 
-                if "iv_curve" in result:
-                    iv_curve_data[str(stable_temp)] = result["iv_curve"]  # Use temperature as the key
+                if result["key"] == "manual_curve":
+                    raise dash.exceptions.PreventUpdate
+                    return dash.no_update
+                elif "iv_curve" in result:
+                    iv_curve_data[str(stable_temp)] = result['iv_curve']  # Use temperature as the key
                     logging.warning(f"Updated iv_curve_data: {iv_curve_data}")
-                    return iv_curve_data
+                    return [iv_curve_data]
                 else:
                     logging.error(f"IV curve measurement error: {result}")
+                    # Dump the stacktrace to logs
+
                     raise dash.exceptions.PreventUpdate
+                    return dash.no_update
 
             except Exception as e:
                 logging.error(f"Error during IV curve measurement: {str(e)}")
                 raise dash.exceptions.PreventUpdate
+                return dash.no_update
 
         logging.error("I should not have gotten here handle_stability_notification()")
         raise dash.exceptions.PreventUpdate
+        return dash.no_update
 
-    # Callback for the manual IV curve measurement button
-    @app.callback(
-        Output("iv-curve-data", "data", allow_duplicate=True),
-        State("iv-curve-data", "data"),
-        Input("manual-iv-curve-btn", "n_clicks"),
-        State("sourcemeter-voltage-lower", "value"),
-        State("sourcemeter-voltage-upper", "value"),
-        State("sourcemeter-voltage-step", "value"),
-        State("sourcemeter-compliance-current", "value"),
-        State("sourcemeter-voltage-range", "value"),
-        prevent_initial_call=True
-    )
-    def take_manual_iv_curve(iv_curve_data, n_clicks, lb, ub, step, compliance_current, source_voltage_range):
-        if not n_clicks:
-            raise dash.exceptions.PreventUpdate
+    # # Callback for the manual IV curve measurement button
+    # @app.callback(
+    #     Output("iv-curve-data", "data", allow_duplicate=True),
+    #     State("iv-curve-data", "data"),
+    #     Input("manual-iv-curve-btn", "n_clicks"),
+    #     State("sourcemeter-voltage-lower", "value"),
+    #     State("sourcemeter-voltage-upper", "value"),
+    #     State("sourcemeter-voltage-step", "value"),
+    #     State("sourcemeter-compliance-current", "value"),
+    #     State("sourcemeter-voltage-range", "value"),
+    #     prevent_initial_call=True
+    # )
+    # def take_manual_iv_curve(iv_curve_data, n_clicks, lb, ub, step, compliance_current, source_voltage_range):
+    #     if not n_clicks:
+    #         dash.no_update
 
-        if iv_curve_data is None:
-            iv_curve_data = {}
+    #     if iv_curve_data is None:
+    #         iv_curve_data = {}
 
-        if step == 0.0:
-            logging.error("SourceMeter Voltage Step was Zero")
-            raise dash.exceptions.PreventUpdate
+    #     # Copy so dash will detect changes
+    #     iv_curve_data = iv_curve_data.copy()
 
-        voltages = list(np.arange(float(lb), float(ub), float(step)))
+    #     if step == 0.0:
+    #         logging.error("SourceMeter Voltage Step was Zero")
+    #         dash.no_update
 
-        try:
-            result = asyncio.run(send_websocket_request("measure_iv_curve", {
-                "start_voltage": voltages[0],
-                "stop_voltage": voltages[-1],
-                "step_voltage": step,
-                "compliance_current": 0.1,
-                "source_voltage_range": 20
-            }))
+    #     voltages = list(np.arange(float(lb), float(ub), float(step)))
+
+    #     try:
+    #         result = asyncio.run(send_websocket_request("measure_iv_curve", {
+    #             "key": "manual_curve",
+    #             "start_voltage": voltages[0],
+    #             "stop_voltage": voltages[-1],
+    #             "step_voltage": step,
+    #             "compliance_current": 0.1,
+    #             "source_voltage_range": 20
+    #         }))
             
-            if "iv_curve" in result:
-                iv_curve_data['Manual Curve'] = result["iv_curve"]
-            else:
-                logging.error(f"IV curve measurement error: {result}")
-                return dash.no_update
-        except Exception as e:
-            logging.error(f"Error during IV curve measurement: {str(e)}")
-            return dash.no_update
+    #         if "iv_curve" in result:
+    #             iv_curve_data['Manual Curve'] = result["iv_curve"]
+    #             logging.info(f"Updating curve using manual data: {iv_curve_data['Manual Curve'] }")
+    #         else:
+    #             logging.error(f"IV curve measurement error: {result}")
+    #             return dash.no_update
+    #     except Exception as e:
+    #         logging.error(f"Error during IV curve measurement: {str(e)}")
+    #         return dash.no_update
 
-        return iv_curve_data
+    #     return iv_curve_data
 
     @app.callback(
         Output("iv-curve-download", "data"),  # This triggers the download
@@ -256,8 +281,13 @@ def register_callbacks(app):
         State("iv-curve-data", "data"),  # The data you want to download
     )
     def download_iv_curve_data(n_clicks, iv_curve_data):
-        if n_clicks is None or iv_curve_data is None:
-            return dash.no_update  # Don't do anything if no click or data
+        if n_clicks is None:
+            return dash.no_update  # Don't do anything if no click
+
+        if iv_curve_data is None:
+            iv_curve_data = "No Cruve Data"
+
+        print("iv_curve_data in download callback", iv_curve_data, flush=True)
         
         # Convert the IV curve data to JSON with indentation for readability
         iv_curve_json = json.dumps(iv_curve_data, indent=4)
@@ -265,6 +295,20 @@ def register_callbacks(app):
         # Return the JSON as plain text with the appropriate filename
         return dict(content=iv_curve_json, filename="iv_curve_data.json")
 
+    @app.callback(Output("iv-curve-debug", "children"), 
+                    Input("iv-curve-data", "data"),
+                    Input("iv-curve-data", "data"),
+                    )
+    def show_data(data, data_state):
+        if len(data) == 0 or not data:
+            return ""
+
+        data = data[0]
+        data_state = data_state[0]
+        a = f"Current keys data: {list(data.keys())}" if isinstance(data, dict) else str(data)
+        b = f"Current keys data_state: {list(data_state.keys())}" if isinstance(data_state, dict) else str(data_state)
+
+        return f"{a} \n {b}"
 
     if __name__ == "__main__":
         app.run_server(debug=True)

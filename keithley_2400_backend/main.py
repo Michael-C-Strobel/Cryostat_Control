@@ -39,6 +39,7 @@ async def handle_measure_iv_curve(websocket: WebSocket, data: dict):
         return
 
     try:
+        key = data["key"]
         start_voltage = data["start_voltage"]
         stop_voltage = data["stop_voltage"]
         step_voltage = data["step_voltage"]
@@ -49,7 +50,7 @@ async def handle_measure_iv_curve(websocket: WebSocket, data: dict):
         iv_curve = await perform_iv_measurement_voltage_sweep(
             source_meter, start_voltage, stop_voltage, step_voltage, compliance_current, source_voltage_range
         )
-        await websocket.send_json({"iv_curve": iv_curve})
+        await websocket.send_json({"iv_curve": iv_curve, "key": str(key)})
     except Exception as e:
         logging.error(f"Error during IV measurement: {str(e)}")
         await websocket.send_json({"error": str(e)})

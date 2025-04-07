@@ -98,13 +98,13 @@ def fetch_status(cryo):
     curr_id = 0
     for curr_id in range(10):
         try:
-            cryo.get_heater_setup(0)
+            cryo.get_heater_setup(curr_id)
             break
         except:
             continue
     if curr_id == 9:
+        logging.error("Could not identify current heater ID.")
         raise ValueError("Could not identify heater output ID. You may have multiple connections open.")
-
     try:
         heater_setup = cryo.get_heater_setup(curr_id)
         temperature = cryo.get_all_kelvin_reading()
