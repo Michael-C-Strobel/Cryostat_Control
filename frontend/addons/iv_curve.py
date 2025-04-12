@@ -4,7 +4,7 @@ import dash_bootstrap_components as dbc
 IV_CURVE_CARD = dbc.Card(
     [
         # State to hold the connection status
-        dcc.Store(id="sourcemeter-connection-status", storage_type="session"),
+        dcc.Store(id="sourcemeter-connection-status", storage_type="session",),
         
         # Dropdown and Button for checking connections
         dbc.Row(
@@ -24,13 +24,12 @@ IV_CURVE_CARD = dbc.Card(
                 )
             ]
         ),
-        
         # Button for initializing the connection
         dbc.Button("Connect", id="sourcemeter-connect-button", color="primary", className="mr-2"),  # Prefixed ID
         
         # Alert to display connection status
         dbc.Alert(id="sourcemeter-state", color="info", children="Sourcemeter state: Disconnected"),  # Prefixed ID
-        dbc.Button("Take IV Curve Measurement", id="manual-iv-curve-btn"),
+        dbc.Button("Take IV Curve Measurement", id="manual-iv-curve-btn", disabled=True),
         # Card Header and Body for IV Curves
         dbc.CardHeader("IV Curves"),
         dbc.CardBody([
@@ -38,7 +37,8 @@ IV_CURVE_CARD = dbc.Card(
                     # Download Link for Data (iv-curve-download-button)
                     dbc.Button("Download IV Curve Data", id="iv-curve-download-button", color="primary"),
                     dcc.Download(id="iv-curve-download"),  # Download component to trigger the download
-                    
+                    # Button for clearing the data
+                    dbc.Button("Clear Data", id="iv-curve-clear-data", color="danger"),
                     dbc.Row(
                         [
                             # Lower Voltage Input

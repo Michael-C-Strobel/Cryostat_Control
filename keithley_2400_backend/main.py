@@ -40,16 +40,36 @@ async def handle_measure_iv_curve(websocket: WebSocket, data: dict):
 
     try:
         key = data["key"]
-        start_voltage = data["start_voltage"]
-        stop_voltage = data["stop_voltage"]
-        step_voltage = data["step_voltage"]
-        compliance_current = data.get("compliance_current", 0.1)
-        source_voltage_range = data.get("source_voltage_range", 5.0)
+        type = data["type"]
+        if type == "voltage_sweep":
+            logging.info(f"Measuring IV curve with key: {key}")
+            start_voltage = data["start_voltage"]
+            stop_voltage = data["stop_voltage"]
+            step_voltage = data["step_voltage"]
+            compliance_current = data.get("compliance_current", 0.1)
+            source_voltage_range = data.get("source_voltage_range", 5.0)
 
-        logging.info(f"Measuring IV: start={start_voltage}, stop={stop_voltage}, step={step_voltage}")
-        iv_curve = await perform_iv_measurement_voltage_sweep(
-            source_meter, start_voltage, stop_voltage, step_voltage, compliance_current, source_voltage_range
-        )
+            logging.info(f"Measuring IV: start={start_voltage}, stop={stop_voltage}, step={step_voltage}")
+            iv_curve = await perform_iv_measurement_voltage_sweep(
+                source_meter, start_voltage, stop_voltage, step_voltage, compliance_current, source_voltage_range
+            )
+        elif type == "current_sweep":
+            logging.info(f"Measuring IV curve with key: {key}")
+            start_current = data["start_current"]
+            stop_current = data["stop_current"]
+            step_current = data["step_current"]
+            compliance_voltage = data.get("compliance_voltage", 5.0)
+            source_current_range = data.get("source_current_range", 0.1)
+
+            logging.info(f"Measuring IV: start={start_current}, stop={stop_current}, step={step_current}")
+            iv_curve = await perform_iv_measurement_current_sweep(
+                source_meter, start_current, stop_current, step_current, compliance_voltage, source_current_range
+            )
+        else:
+            logging.error(f"Invalid measurement type: {type}")
+            await websocket.send_json({"error": "Invalid measurement type"})
+            return
+
         await websocket.send_json({"iv_curve": iv_curve, "key": str(key)})
     except Exception as e:
         logging.error(f"Error during IV measurement: {str(e)}")

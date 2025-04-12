@@ -12,6 +12,7 @@ import requests
 from dash.exceptions import PreventUpdate
 import numpy as np
 import base64
+import traceback
 
 # Asynchronous WebSocket function for connection
 async def send_websocket_request(command, payload={}):
@@ -153,37 +154,43 @@ def register_callbacks(app):
     )
     def handle_stability_notification(message, iv_curve_data, lb, ub, step):
         if iv_curve_data is None:
-            iv_curve_data = {}
+            iv_curve_data = [{}]
 
         # Copy so dash will detect changes
         iv_curve_data = iv_curve_data.copy()
 
         if not message:
-            raise dash.exceptions.PreventUpdate
+            # raise dash.exceptions.PreventUpdate
             return dash.no_update
 
         # Parse incoming WebSocket message
         try:
             data = json.loads(message["data"])
+            if data is None:
+                return dash.no_update
+            
         except json.JSONDecodeError as e:
             logging.error(f"Failed to parse WebSocket message: {str(e)}")
-            raise dash.exceptions.PreventUpdate
+            # raise dash.exceptions.PreventUpdate
             return dash.no_update
 
-        if 'heater_setup' not in data.keys():
+        if 'heater_setup' not in data.keys() and 'stable_temperature' not in data.keys():
             logging.warning(f'Unexpected message data: {data}')
-        
+
         stable_temp = data.get("stable_temperature")
         if stable_temp is None:
-            raise dash.exceptions.PreventUpdate
+            # raise dash.exceptions.PreventUpdate
             return dash.no_update
+
+        logging.error(f"{data}")
+
 
         if stable_temp is not None:
             logging.info(f"Received stable_temperature notification: {data}")
 
             if step == 0.0:
                 logging.error("SourceMeter Voltage Step was Zero")
-                raise dash.exceptions.PreventUpdate
+                # raise dash.exceptions.PreventUpdate
                 return dash.no_update
 
             # Define voltage sweep range
@@ -201,28 +208,30 @@ def register_callbacks(app):
                 }))
 
                 logging.warning(f"Got Result in Frontend: {result}")
+                logging.warning(f"Type: {type(result)}")
 
                 if result["key"] == "manual_curve":
-                    raise dash.exceptions.PreventUpdate
+                    # raise dash.exceptions.PreventUpdate
                     return dash.no_update
                 elif "iv_curve" in result:
-                    iv_curve_data[str(stable_temp)] = result['iv_curve']  # Use temperature as the key
+                    iv_curve_data[0][str(stable_temp)] = result['iv_curve']  # Use temperature as the key
                     logging.warning(f"Updated iv_curve_data: {iv_curve_data}")
-                    return [iv_curve_data]
+                    return iv_curve_data
                 else:
                     logging.error(f"IV curve measurement error: {result}")
                     # Dump the stacktrace to logs
 
-                    raise dash.exceptions.PreventUpdate
+                    # raise dash.exceptions.PreventUpdate
                     return dash.no_update
 
             except Exception as e:
-                logging.error(f"Error during IV curve measurement: {str(e)}")
-                raise dash.exceptions.PreventUpdate
+                logging.error("Error during IV curve measurement:\n%s", traceback.format_exc())
+
+                # raise dash.exceptions.PreventUpdate
                 return dash.no_update
 
         logging.error("I should not have gotten here handle_stability_notification()")
-        raise dash.exceptions.PreventUpdate
+        # raise dash.exceptions.PreventUpdate
         return dash.no_update
 
     # # Callback for the manual IV curve measurement button
@@ -309,6 +318,18 @@ def register_callbacks(app):
         b = f"Current keys data_state: {list(data_state.keys())}" if isinstance(data_state, dict) else str(data_state)
 
         return f"{a} \n {b}"
+
+    @app.callback(
+        Output("iv-curve-data", "data", allow_duplicate=True),
+        Input("iv-curve-clear-data", "n_clicks"),
+        prevent_initial_call=True
+    )
+    def reset_iv_curve_data(n_clicks):
+        if n_clicks is None:
+            return dash.no_update
+
+        # Reset the IV curve data to an empty list
+        return [{}]  # Reset to an empty list or any other default value
 
     if __name__ == "__main__":
         app.run_server(debug=True)

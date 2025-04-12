@@ -23,7 +23,11 @@ class TemperatureScheduler:
         self.cryo.set_control_setpoint(self.heater_output, setpoint)
 
     async def get_temperature(self) -> float:
-        return fetch_status(self.cryo)["temperature"]["sensor_1"]   # For now, hardcode to monitor sensor_1
+        curr_status = fetch_status(self.cryo)
+        if curr_status is None:
+            logging.warning("No status available")
+            return None
+        return curr_status["temperature"]["sensor_1"]   # For now, hardcode to monitor sensor_1
 
     async def monitor_temperature(self, callback: Callable[[float], None]):
         """Asynchronously monitor temperature, call `callback` when stable."""
@@ -33,10 +37,13 @@ class TemperatureScheduler:
                 current_setpoint = self.setpoints[self.current_setpoint_index]
                 await self.set_setpoint(current_setpoint)
 
+                current_temp = float('inf')  
                 while self.running:
-                    logging.warning("Checking Current T in loop")
-                    current_temp = await self.get_temperature()
-                    logging.warning(f"Got current temp {current_temp}")
+                    # logging.warning("Checking Current T in loop")
+                    _current_temp = await self.get_temperature()    # This logic basically means "if there's an error, keep monitoring and wait"
+                    if _current_temp is not None:
+                        current_temp = _current_temp
+                    # logging.warning(f"Got current temp {current_temp}")
                     if abs(current_temp - current_setpoint) <= self.threshold:
                         logging.warning(f"Temperature {current_temp} is within threshold of setpoint {current_setpoint}")
                         callback(current_temp)  # Notify via callback
@@ -52,11 +59,11 @@ class TemperatureScheduler:
                                 logging.warning("Program Complete. All heaters turned off.")
 
                         break
-                    await asyncio.sleep(0.01)  # Avoid tight CPU loop
+                    await asyncio.sleep(0.05)  # Avoid tight CPU loop
 
                 self.current_setpoint_index += 1
 
         except Exception as e:
             self.running = False
-            cryo.all_heaters_off()
-            logging.error(f"Error in temperature monitoring: {e}")
+            logging.error(f"Error in temperature monitoring: {e}. Scheduler stopped, heaters turned off.")
+            self.cryo.all_heaters_off()

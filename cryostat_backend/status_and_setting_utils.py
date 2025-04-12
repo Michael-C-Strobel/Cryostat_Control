@@ -161,5 +161,5 @@ def fetch_status(cryo):
 
     except Exception as e:
         print(f"Error fetching status: {e}")
-        raise e
+        # raise e
         return None
