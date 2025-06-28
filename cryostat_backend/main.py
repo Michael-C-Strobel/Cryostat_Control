@@ -19,7 +19,7 @@ if cryo is None:
 # Store active WebSocket connections
 active_connections = set()
 
-temperature_scheduler = None
+temperature_scheduler_task = None
 
 @app.get("/status")
 async def get_status():
@@ -108,16 +108,18 @@ async def websocket_start_temperature_schedule(websocket: WebSocket):
             sustain_on_exit = data.get("sustain", False)
             hold_time = data.get("hold_time", 60)
 
-            global temperature_scheduler
-            if temperature_scheduler and temperature_scheduler.running:
-                temperature_scheduler.running = False
+            global temperature_scheduler_task
+            if temperature_scheduler_task and temperature_scheduler_task.running:
+                logging.warning("Stopping existing temperature scheduler before starting a new one.")
+                temperature_scheduler_task.running = False
 
             def notify_callback(temp):
                 asyncio.create_task(broadcast_temperature(temp))
 
-            temperature_scheduler = TemperatureScheduler(cryo, heater_output=1, setpoints=setpoints, threshold=threshold, 
+            temperature_scheduler_task = TemperatureScheduler(cryo, heater_output=1, setpoints=setpoints, threshold=threshold, 
                                     hold_time=hold_time, sustain_on_exit=sustain_on_exit)
-            asyncio.create_task(temperature_scheduler.monitor_temperature(notify_callback))
+            logging.warning(f"Starting temperature scheduler with setpoints: {setpoints}, threshold: {threshold}, hold_time: {hold_time}, sustain_on_exit: {sustain_on_exit}")
+            asyncio.create_task(temperature_scheduler_task.monitor_temperature(notify_callback))
 
             await websocket.send_text(json.dumps({"status": "Temperature schedule started"}))
 
@@ -151,9 +153,9 @@ async def websocket_stop_temperature_schedule(websocket: WebSocket):
     """WebSocket endpoint to stop the temperature schedule."""
     await websocket.accept()
     logging.warning("Stopping temperature schedule")
-    global temperature_scheduler
-    if temperature_scheduler:
-        temperature_scheduler.running = False
+    global temperature_scheduler_task
+    if temperature_scheduler_task:
+        temperature_scheduler_task.running = False
         logging.warning("Temperature schedule stopped, starting to wait")
         await websocket.send_text(json.dumps({"status": "Temperature schedule stopped"}))
         logging.warning("Exiting")

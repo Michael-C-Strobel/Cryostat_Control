@@ -86,32 +86,29 @@ async def handle_status(websocket: WebSocket):
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
-    """Unified WebSocket endpoint handling multiple commands."""
+    """WebSocket endpoint for single-request connections (e.g., from Celery)."""
     await websocket.accept()
-    active_connections.add(websocket)
 
     try:
-        while True:
-            data = await websocket.receive_json()
-            command = data.get("command")
+        data = await websocket.receive_json()
+        command = data.get("command")
 
-            command_handlers = {
-                "initialize": handle_initialize,
-                "measure_iv_curve": handle_measure_iv_curve,
-                "status": handle_status,
-            }
+        command_handlers = {
+            "initialize": handle_initialize,
+            "measure_iv_curve": handle_measure_iv_curve,
+            "status": handle_status,
+        }
 
-            handler = command_handlers.get(command)
-            if handler:
-                await handler(websocket, data)
-            else:
-                await websocket.send_json({"error": "Unknown command"})
+        handler = command_handlers.get(command)
+        if handler:
+            await handler(websocket, data)
+        else:
+            await websocket.send_json({"error": "Unknown command"})
 
     except WebSocketDisconnect:
-        active_connections.remove(websocket)
         logging.info("Client disconnected")
     except Exception as e:
-        logging.error(f"WebSocket error: {e}")
+        logging.exception(f"WebSocket error: {e}")
     finally:
         if websocket.application_state == WebSocketState.CONNECTED:
             await websocket.close()

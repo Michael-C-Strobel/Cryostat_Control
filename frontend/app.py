@@ -10,6 +10,7 @@ from datetime import datetime
 import pandas as pd
 from dash import dash_table
 from dash_extensions.enrich import DashProxy, BlockingCallbackTransform
+import time
 
 # IV Curve bits
 from addons.iv_curve_callbacks import register_callbacks as register_iv_curve_callbacks
@@ -549,6 +550,7 @@ def start_temperature_schedule(n_clicks, table_data, temperature_tolerance, hold
         "threshold": threshold,
         "sustain": sustain_on_end,
         "hold_time": hold_time,
+        "_nonce": time.time(),  # add a changing value to force a new send
     }
 
     logging.info(f"Starting temperature schedule with data: {schedule_data}")
