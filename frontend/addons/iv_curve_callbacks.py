@@ -13,6 +13,19 @@ from dash.exceptions import PreventUpdate
 import numpy as np
 import base64
 import traceback
+import os
+
+from .iv_curve_celery.tasks import run_sourcemeter_measurement
+from .iv_curve_celery.celery_app import celery_app
+from celery.result import AsyncResult
+from celery.signals import task_success
+import redis
+
+REDIS_URL = os.getenv("CELERY_BROKER_URL")
+redis_client = redis.Redis.from_url(REDIS_URL)
+
+if not REDIS_URL:
+    raise ValueError("CELERY_BROKER_URL must be set in environment variables.")
 
 # Asynchronous WebSocket function for connection
 async def send_websocket_request(command, payload={}):
@@ -142,62 +155,40 @@ def register_callbacks(app):
 
     # WebSocket message handler for handling real-time stability notifications
     @app.callback(
-        Output("iv-curve-data", "data"),
+        Output("sourcemeter-task-id", "data"),
         Input("ws", "message"),
-        State("iv-curve-data", "data"),
         State("iv-curve-type", "value"),
-        # Voltage sweep inputs
         State("sourcemeter-voltage-lower", "value"),
         State("sourcemeter-voltage-upper", "value"),
         State("sourcemeter-voltage-step", "value"),
         State("sourcemeter-compliance-current", "value"),
         State("sourcemeter-voltage-range", "value"),
-        # Current sweep inputs
         State("sourcemeter-current-lower", "value"),
         State("sourcemeter-current-upper", "value"),
         State("sourcemeter-current-step", "value"),
         State("sourcemeter-compliance-voltage", "value"),
         State("sourcemeter-current-range", "value"),
-        blocking=True,
-        prevent_initial_call=True
+        prevent_initial_call=True,
     )
-    def handle_stability_notification(message, iv_curve_data, sweep_type,
-                                    v_lb, v_ub, v_step, compliance_current, voltage_range,
-                                    c_lb, c_ub, c_step, compliance_voltage, current_range):
-        if iv_curve_data is None:
-            iv_curve_data = [{}]
-        iv_curve_data = iv_curve_data.copy()
-
+    def handle_stability_notification(
+        message, sweep_type,
+        v_lb, v_ub, v_step, compliance_current, voltage_range,
+        c_lb, c_ub, c_step, compliance_voltage, current_range,
+    ):
         if not message:
             return dash.no_update
 
         try:
             data = json.loads(message["data"])
-            if data is None:
+            if "stable_temperature" not in data:
                 return dash.no_update
+            stable_temp = data["stable_temperature"]
+            logging.info(f"Received stable_temperature notification: {data}")
 
-            logging.error(f"Received WebSocket message: {data}")
-
-        except json.JSONDecodeError as e:
-            logging.error(f"Failed to parse WebSocket message: {str(e)}")
-            return dash.no_update
-
-        if 'heater_setup' not in data and 'stable_temperature' not in data:
-            logging.warning(f'Unexpected message data: {data}')
-            return dash.no_update
-
-        stable_temp = data.get("stable_temperature")
-        if stable_temp is None:
-            return dash.no_update
-
-        logging.info(f"Received stable_temperature notification: {data}")
-
-        try:
             if sweep_type == "voltage_sweep":
                 if v_step == 0.0:
                     logging.error("Voltage Step was Zero")
                     return dash.no_update
-
                 voltages = list(np.arange(float(v_lb), float(v_ub), float(v_step)))
                 payload = {
                     "key": str(stable_temp),
@@ -208,12 +199,10 @@ def register_callbacks(app):
                     "compliance_current": compliance_current,
                     "source_voltage_range": voltage_range,
                 }
-
             elif sweep_type == "current_sweep":
                 if c_step == 0.0:
                     logging.error("Current Step was Zero")
                     return dash.no_update
-
                 currents = list(np.arange(float(c_lb), float(c_ub), float(c_step)))
                 payload = {
                     "key": str(stable_temp),
@@ -228,25 +217,57 @@ def register_callbacks(app):
                 logging.error(f"Unknown sweep type: {sweep_type}")
                 return dash.no_update
 
-            result = asyncio.run(send_websocket_request("measure_iv_curve", payload))
-            logging.warning(f"Got Result in Frontend: {result}")
+            task = run_sourcemeter_measurement.apply_async(args=["measure_iv_curve", payload])
+            logging.warning(f"[handle_stability_notification] Queued task ID: {task.id}")
+            return str(task.id)
 
-            if result.get("key") == "manual_curve":
-                return dash.no_update
-            elif "iv_curve" in result:
-                logging.warning(f"Existing IV Cruve Data {iv_curve_data}")
-                if type(iv_curve_data) == list:
-                    iv_curve_data = iv_curve_data[0]
-                iv_curve_data[str(stable_temp)] = result['iv_curve']
-                logging.warning(f"Updated iv_curve_data: {iv_curve_data}")
-                return [iv_curve_data]
-            else:
-                logging.error(f"IV curve measurement error: {result}")
-                return dash.no_update
-
-        except Exception:
-            logging.error("Error during IV curve measurement:\n%s", traceback.format_exc())
+        except Exception as e:
+            logging.error(f"Error queuing measurement task:\n{e}")
             return dash.no_update
+    
+    # This is pretty janky, in principle the results could be overwritten by the time this runs
+    # But our interval is faster than the SourceMeter can run.
+    # When the dcc.Store + WebSocket bug is resolved, this should be deprecated
+    @app.callback(
+        Output("iv-curve-data", "data"),
+        Input("interval-component", "n_intervals"),
+        State("iv-curve-data", "data"),
+        prevent_initial_call=True,
+    )
+    def poll_for_completed_results(_, iv_curve_data):
+        # Try popping from Redis
+        raw = redis_client.lpop("sourcemeter:results")
+
+        if not raw:
+            logging.info("[Polling] No completed task result found in Redis")
+            return dash.no_update
+
+        try:
+            payload = json.loads(raw)
+            result = payload["result"]
+            logging.info(f"[Polling] Processing result from Redis: {result}")
+        except Exception as e:
+            logging.error(f"[Polling] Error parsing task result: {e}")
+            return dash.no_update
+
+        if result.get("key") == "manual_curve":
+            return dash.no_update
+        elif "iv_curve" in result:
+            stable_temp = result.get("key", "unknown")
+
+            # Ensure dict shape
+            if iv_curve_data is None:
+                iv_curve_data = [{}]
+            iv_curve_data = iv_curve_data.copy()
+            if isinstance(iv_curve_data, list):
+                iv_curve_data = iv_curve_data[0]
+
+            iv_curve_data[str(stable_temp)] = result["iv_curve"]
+            return [iv_curve_data]
+        else:
+            logging.error(f"[Polling] Unexpected result format: {result}")
+
+        return dash.no_update
 
     # # Callback for the manual IV curve measurement button
     # @app.callback(
@@ -332,6 +353,20 @@ def register_callbacks(app):
         b = f"Current keys data_state: {list(data_state.keys())}" if isinstance(data_state, dict) else str(data_state)
 
         return f"{a} \n {b}"
+
+    @app.callback(Output("iv-curve-debug2", "children"), 
+                    Input("sourcemeter-task-id", "data"),
+    )
+    def show_task_id(task_id):
+        return f"Current task ID: {task_id}"
+
+    # @app.callback(
+    #     Output("sourcemeter-task-id", "data"),
+    #     Input("test-btn", "n_clicks"),
+    #     prevent_initial_call=True,
+    # )
+    # def test_update(n_clicks):
+    #     return f"task-id-{n_clicks}"
 
     @app.callback(
         Output("iv-curve-data", "data", allow_duplicate=True),

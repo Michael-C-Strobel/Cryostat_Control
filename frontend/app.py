@@ -252,7 +252,9 @@ ADDONS = dbc.Card([
     dbc.CardHeader("Addons"),
     dbc.CardBody([
         IV_CURVE_CARD,
-        html.Div(id="iv-curve-debug")
+        html.Div(id="iv-curve-debug"),
+        html.Div(id="iv-curve-debug2"),
+        html.Button("Test Update", id="test-btn"),
     ])
 ])
 register_iv_curve_callbacks(app)
@@ -272,6 +274,7 @@ app.layout = html.Div([
     dcc.Store(id='temperature-history', data=[], storage_type='session'),  # Store historical temperature data  # TODO: Set to local for all
     dcc.Store(id='cryostat-state', data=dict(), storage_type='session'),  # Store current cryostat state
     dcc.Store(id='iv-curve-data', data=dict(), storage_type='session'),  # Store IV curve data
+    dcc.Store(id="sourcemeter-task-id", data="", storage_type='memory'), # Store currently running communication tasks with SourceMeter
     NAVBAR,  # Include Navbar at the top
     dbc.Container([
         dbc.Row([

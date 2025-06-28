@@ -94,7 +94,7 @@ IV_CURVE_CARD = dbc.Card(
                         {"label": "Voltage Sweep", "value": "voltage_sweep"},
                         {"label": "Current Sweep", "value": "current_sweep"}
                     ],
-                    value="current_sweep",
+                    value="voltage_sweep",
                     labelStyle={"display": "block"},
                     inline=False
                 ),

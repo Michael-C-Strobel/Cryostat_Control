@@ -1,7 +1,7 @@
 version: "3"
 
 services:
-  cyrostat-backend:
+  cyrostat-backend: # Runs on the cryostat, continuously sets and minors the temperature
     build:
       context: ./cryostat_backend
       dockerfile: Dockerfile
@@ -22,8 +22,13 @@ services:
       timeout: 5s
       retries: 3
       start_period: 10s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
-  keithley-2400-backend:
+  keithley-2400-backend:  # Manages the Keithley 2400 sourcemeter, handles WebSocket connections to take measurements
     build:
       context: ./keithley_2400_backend
       dockerfile: Dockerfile
@@ -39,12 +44,51 @@ services:
     restart: unless-stopped
     # healthcheck:
     #   test: ["CMD-SHELL", "curl -f http://localhost:8001/health || exit 1"]
-    #   interval: 5s
+    #   interval: 5s 
     #   timeout: 5s
     #   retries: 3
-    #   start_period: 20s
+    #   start_period: 3s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
-  frontend:
+  redis:  # Redis service for Celery task queue
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    restart: unless-stopped
+    networks:
+      - instrument-net
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  celery_worker:  # Celery worker for handling asynchronous tasks like IV curve measurements (prevents frontend from blocking)
+    build:
+      context: ./frontend
+      dockerfile: addons/iv_curve_celery/Dockerfile
+    command: celery -A addons.iv_curve_celery.celery_app worker --loglevel=info
+    depends_on:
+      - redis
+    environment:
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - PYTHONPATH=/app/frontend
+    working_dir: /app/frontend
+    restart: unless-stopped
+    networks:
+      - instrument-net
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  frontend: # Dash app, the web server
     build:
       context: ./frontend
       dockerfile: Dockerfile
@@ -54,13 +98,25 @@ services:
     depends_on:
       cyrostat-backend:
         condition: service_healthy
-      # keithley-2400-backend: 
-      #   condition: service_healthy
+      # keithley-2400-backend:        # TODO: Update API to enable this
+        # condition: service_healthy
+      redis:
+        condition: service_started
+      celery_worker:
+        condition: service_started
     ports:
       - "8050:8050"  # Expose dash on port 8050
     networks:
       - instrument-net
     restart: 'no'
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    environment:
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
 
 networks:
   instrument-net:

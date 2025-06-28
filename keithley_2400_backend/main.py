@@ -1,5 +1,6 @@
 import asyncio
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, BackgroundTasks
+from starlette.websockets import WebSocketState
 import uvicorn
 import json
 from typing import List, Dict
@@ -112,7 +113,8 @@ async def websocket_endpoint(websocket: WebSocket):
     except Exception as e:
         logging.error(f"WebSocket error: {e}")
     finally:
-        await websocket.close()
+        if websocket.application_state == WebSocketState.CONNECTED:
+            await websocket.close()
 
 
 ###### HTTP Endpoints ######

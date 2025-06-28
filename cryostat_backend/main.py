@@ -101,7 +101,7 @@ async def websocket_start_temperature_schedule(websocket: WebSocket):
     try:
         while True:
             data = await websocket.receive_json()
-            logging.info(f"Received schedule data: {data}")
+            logging.warning(f"Received schedule data: {data}")
 
             setpoints = data.get("setpoints", [])
             threshold = data.get("threshold", 0.1)
