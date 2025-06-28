@@ -142,97 +142,111 @@ def register_callbacks(app):
 
     # WebSocket message handler for handling real-time stability notifications
     @app.callback(
-        Output("iv-curve-data", "data"),#, allow_duplicate=True),
-        Input("ws", "message"),  # Listening to messages from the WebSocket
+        Output("iv-curve-data", "data"),
+        Input("ws", "message"),
         State("iv-curve-data", "data"),
+        State("iv-curve-type", "value"),
+        # Voltage sweep inputs
         State("sourcemeter-voltage-lower", "value"),
         State("sourcemeter-voltage-upper", "value"),
         State("sourcemeter-voltage-step", "value"),
-        # background=True,
+        State("sourcemeter-compliance-current", "value"),
+        State("sourcemeter-voltage-range", "value"),
+        # Current sweep inputs
+        State("sourcemeter-current-lower", "value"),
+        State("sourcemeter-current-upper", "value"),
+        State("sourcemeter-current-step", "value"),
+        State("sourcemeter-compliance-voltage", "value"),
+        State("sourcemeter-current-range", "value"),
         blocking=True,
         prevent_initial_call=True
     )
-    def handle_stability_notification(message, iv_curve_data, lb, ub, step):
+    def handle_stability_notification(message, iv_curve_data, sweep_type,
+                                    v_lb, v_ub, v_step, compliance_current, voltage_range,
+                                    c_lb, c_ub, c_step, compliance_voltage, current_range):
         if iv_curve_data is None:
             iv_curve_data = [{}]
-
-        # Copy so dash will detect changes
         iv_curve_data = iv_curve_data.copy()
 
         if not message:
-            # raise dash.exceptions.PreventUpdate
             return dash.no_update
 
-        # Parse incoming WebSocket message
         try:
             data = json.loads(message["data"])
             if data is None:
                 return dash.no_update
-            
+
+            logging.error(f"Received WebSocket message: {data}")
+
         except json.JSONDecodeError as e:
             logging.error(f"Failed to parse WebSocket message: {str(e)}")
-            # raise dash.exceptions.PreventUpdate
             return dash.no_update
 
-        if 'heater_setup' not in data.keys() and 'stable_temperature' not in data.keys():
+        if 'heater_setup' not in data and 'stable_temperature' not in data:
             logging.warning(f'Unexpected message data: {data}')
+            return dash.no_update
 
         stable_temp = data.get("stable_temperature")
         if stable_temp is None:
-            # raise dash.exceptions.PreventUpdate
             return dash.no_update
 
-        logging.error(f"{data}")
+        logging.info(f"Received stable_temperature notification: {data}")
 
+        try:
+            if sweep_type == "voltage_sweep":
+                if v_step == 0.0:
+                    logging.error("Voltage Step was Zero")
+                    return dash.no_update
 
-        if stable_temp is not None:
-            logging.info(f"Received stable_temperature notification: {data}")
-
-            if step == 0.0:
-                logging.error("SourceMeter Voltage Step was Zero")
-                # raise dash.exceptions.PreventUpdate
-                return dash.no_update
-
-            # Define voltage sweep range
-            voltages = list(np.arange(float(lb), float(ub), float(step)))
-
-            # Send WebSocket request for IV curve measurement
-            try:
-                result = asyncio.run(send_websocket_request("measure_iv_curve", {
+                voltages = list(np.arange(float(v_lb), float(v_ub), float(v_step)))
+                payload = {
                     "key": str(stable_temp),
+                    "type": "voltage_sweep",
                     "start_voltage": voltages[0],
                     "stop_voltage": voltages[-1],
-                    "step_voltage": step,
-                    "compliance_current": 0.1,  # Default compliance current TODO
-                    "source_voltage_range": 20  # Default voltage range TODO
-                }))
+                    "step_voltage": v_step,
+                    "compliance_current": compliance_current,
+                    "source_voltage_range": voltage_range,
+                }
 
-                logging.warning(f"Got Result in Frontend: {result}")
-                logging.warning(f"Type: {type(result)}")
-
-                if result["key"] == "manual_curve":
-                    # raise dash.exceptions.PreventUpdate
-                    return dash.no_update
-                elif "iv_curve" in result:
-                    iv_curve_data[0][str(stable_temp)] = result['iv_curve']  # Use temperature as the key
-                    logging.warning(f"Updated iv_curve_data: {iv_curve_data}")
-                    return iv_curve_data
-                else:
-                    logging.error(f"IV curve measurement error: {result}")
-                    # Dump the stacktrace to logs
-
-                    # raise dash.exceptions.PreventUpdate
+            elif sweep_type == "current_sweep":
+                if c_step == 0.0:
+                    logging.error("Current Step was Zero")
                     return dash.no_update
 
-            except Exception as e:
-                logging.error("Error during IV curve measurement:\n%s", traceback.format_exc())
-
-                # raise dash.exceptions.PreventUpdate
+                currents = list(np.arange(float(c_lb), float(c_ub), float(c_step)))
+                payload = {
+                    "key": str(stable_temp),
+                    "type": "current_sweep",
+                    "start_current": currents[0],
+                    "stop_current": currents[-1],
+                    "step_current": c_step,
+                    "compliance_voltage": compliance_voltage,
+                    "source_current_range": current_range,
+                }
+            else:
+                logging.error(f"Unknown sweep type: {sweep_type}")
                 return dash.no_update
 
-        logging.error("I should not have gotten here handle_stability_notification()")
-        # raise dash.exceptions.PreventUpdate
-        return dash.no_update
+            result = asyncio.run(send_websocket_request("measure_iv_curve", payload))
+            logging.warning(f"Got Result in Frontend: {result}")
+
+            if result.get("key") == "manual_curve":
+                return dash.no_update
+            elif "iv_curve" in result:
+                logging.warning(f"Existing IV Cruve Data {iv_curve_data}")
+                if type(iv_curve_data) == list:
+                    iv_curve_data = iv_curve_data[0]
+                iv_curve_data[str(stable_temp)] = result['iv_curve']
+                logging.warning(f"Updated iv_curve_data: {iv_curve_data}")
+                return [iv_curve_data]
+            else:
+                logging.error(f"IV curve measurement error: {result}")
+                return dash.no_update
+
+        except Exception:
+            logging.error("Error during IV curve measurement:\n%s", traceback.format_exc())
+            return dash.no_update
 
     # # Callback for the manual IV curve measurement button
     # @app.callback(
@@ -329,7 +343,20 @@ def register_callbacks(app):
             return dash.no_update
 
         # Reset the IV curve data to an empty list
-        return [{}]  # Reset to an empty list or any other default value
+        return [dict()]  # Reset to an empty list or any other default value
+
+    @app.callback(
+        Output("voltage-params", "style"),
+        Output("current-params", "style"),
+        Input("iv-curve-type", "value"),
+    )
+    def toggle_input_visibility(sweep_type):
+        if sweep_type == "voltage_sweep":
+            return {"display": "block"}, {"display": "none"}
+        elif sweep_type == "current_sweep":
+            return {"display": "none"}, {"display": "block"}
+        return {"display": "none"}, {"display": "none"}
+
 
     if __name__ == "__main__":
         app.run_server(debug=True)
