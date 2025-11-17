@@ -346,6 +346,10 @@ def update_status(n_intervals, message, temp_history):
         "time": current_time,
     })
 
+    # Limit history to last 1000 entries to avoid memory issues
+    if len(temp_history) > 1000:
+        temp_history = temp_history[-1000:]
+
     # Prepare data for plotting
     times = [entry["time"] for entry in temp_history]  # Extract times
     sensor_1_temps = [entry["sensor_1"] for entry in temp_history]  # Extract sensor 1 temperatures

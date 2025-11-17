@@ -3,6 +3,7 @@ from lakeshore import Model335
 from typing import List, Callable
 import logging
 from status_and_setting_utils import fetch_status
+import collections
 
 class TemperatureScheduler:
     def __init__(self, cryo: Model335, heater_output: int, setpoints: List[float], threshold: float = 0.1,
@@ -37,14 +38,22 @@ class TemperatureScheduler:
                 current_setpoint = self.setpoints[self.current_setpoint_index]
                 await self.set_setpoint(current_setpoint)
 
+                # Buffer to store historical stability
+                required_samples = 400   # 20 seconds at 0.05s sampling
+                stability_window = collections.deque(maxlen=required_samples)
+
                 current_temp = float('inf')  
                 while self.running:
                     # logging.warning("Checking Current T in loop")
                     _current_temp = await self.get_temperature()    # This logic basically means "if there's an error, keep monitoring and wait"
                     if _current_temp is not None:
                         current_temp = _current_temp
+
+                    in_range = abs(current_temp - current_setpoint) <= self.threshold
+                    stability_window.append(in_range)
+                        
                     # logging.warning(f"Got current temp {current_temp}")
-                    if abs(current_temp - current_setpoint) <= self.threshold:
+                    if len(stability_window) == required_samples and all(stability_window):
                         logging.warning(f"Temperature {current_temp} is within threshold of setpoint {current_setpoint}")
                         callback(current_temp)  # Notify via callback
                         await asyncio.sleep(self.hold_time)  # Hold for the specified time to get a measurement

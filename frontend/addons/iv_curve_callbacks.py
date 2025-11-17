@@ -178,6 +178,7 @@ def register_callbacks(app):
         if not message:
             return dash.no_update
 
+        logging.info(f"handle_stability_notification is polling with message: {message}")
         try:
             data = json.loads(message["data"])
             if "stable_temperature" not in data:

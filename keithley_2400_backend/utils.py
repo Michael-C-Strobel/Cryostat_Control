@@ -108,7 +108,7 @@ async def perform_iv_measurement_voltage_sweep(source_meter: 'Keithley2400',
     try:
         source_meter.reset()
         source_meter.use_front_terminals()
-        source_meter.apply_voltage(voltage_range=source_voltage_range, compliance_current=compliance_current)
+        source_meter.apply_voltage(voltage_range=None, compliance_current=compliance_current)
         source_meter.measure_current(nplc=nplc)
         source_meter.filter_count = num_averages
         source_meter.filter_state = "ON"
@@ -120,7 +120,7 @@ async def perform_iv_measurement_voltage_sweep(source_meter: 'Keithley2400',
         average_currents = []
 
         for voltage in voltages:
-            source_meter.source_voltage = voltage
+            source_meter.source_voltage = voltage               # Actively apply volates
             await asyncio.sleep(0.1)  # Allow time to settle
             average_currents.append(source_meter.current)
 
@@ -184,7 +184,7 @@ async def perform_iv_measurement_current_sweep(source_meter: 'Keithley2400',
     try:
         source_meter.reset()
         source_meter.use_front_terminals()
-        source_meter.apply_current(current_range=source_current_range, compliance_voltage=compliance_voltage)
+        source_meter.apply_current(current_range=None, compliance_voltage=compliance_voltage)
         source_meter.measure_voltage(nplc=nplc)
         source_meter.filter_count = num_averages
         source_meter.filter_state = "ON"
