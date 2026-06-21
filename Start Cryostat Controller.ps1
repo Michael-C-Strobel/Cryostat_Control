@@ -69,9 +69,12 @@ try {
     $sshConfigPath = "$env:USERPROFILE\.ssh\config"
     $hasHostEntry = $false
     if (Test-Path $sshConfigPath) {
-        $configContent = Get-Content $sshConfigPath -Raw
-        if ($configContent -match "(?m)^\s*Host\s+.*\b$cryostat-controller\b") {
-            $hasHostEntry = $true
+        $configLines = Get-Content $sshConfigPath
+        foreach ($line in $configLines) {
+            if ($line -match "^\s*Host\b" -and $line -match "\b$([regex]::Escape($HostName))\b") {
+                $hasHostEntry = $true
+                break
+            }
         }
     }
     if (-not $hasHostEntry) {
