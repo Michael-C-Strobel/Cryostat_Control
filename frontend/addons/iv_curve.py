@@ -78,7 +78,7 @@ IV_CURVE_CARD = dbc.Card(
         ),
         dbc.Button("Connect", id="sourcemeter-connect-button", color="primary"),
         dbc.Alert(id="sourcemeter-state", color="info", children="Sourcemeter state: Disconnected"),
-        dbc.Button("Take IV Curve Measurement", id="manual-iv-curve-btn", disabled=True),
+        dbc.Button("Take IV Curve Measurement", id="manual-iv-curve-btn", color="primary"),
 
         dbc.CardHeader("IV Curves"),
         dbc.CardBody(

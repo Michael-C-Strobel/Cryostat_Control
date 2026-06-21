@@ -123,11 +123,12 @@ def fetch_status(cryo):
             heater_range = "high"
 
         # Reformat to control message structure
+        # The Lakeshore library returns "heater_resistnace" (sic); normalize it.
         heater_setup_dict = {
-            "output_type": heater_setup["output_type"], # TODO: Resolve type
-            "heater_resistance": heater_setup["heater_resistnace"], # Note the spelling mistake, this is the actual key # TODO: Resolve type
-            "max_current": heater_setup["max_current"],
-            "output_display_mode": heater_setup["output_display_mode"]  # TODO: Resolve type
+            "output_type": heater_setup.get("output_type"),
+            "heater_resistance": heater_setup.get("heater_resistance", heater_setup.get("heater_resistnace")),
+            "max_current": heater_setup.get("max_current"),
+            "output_display_mode": heater_setup.get("output_display_mode")
         }
 
         temperature_dict = {
@@ -142,9 +143,9 @@ def fetch_status(cryo):
         }
 
         pid_dict = {
-            "gain": pid["gain"],
-            "integral": pid["integral"],
-            "ramp_rate": pid["ramp_rate"]
+            "gain": pid.get("gain"),
+            "integral": pid.get("integral"),
+            "ramp_rate": pid.get("ramp_rate", pid.get("derivative"))
         }
 
         heater_range = {
@@ -160,6 +161,5 @@ def fetch_status(cryo):
         }
 
     except Exception as e:
-        print(f"Error fetching status: {e}")
-        # raise e
+        logging.warning(f"Error fetching status: {e}")
         return None

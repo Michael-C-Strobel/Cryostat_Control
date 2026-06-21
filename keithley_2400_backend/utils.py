@@ -116,7 +116,10 @@ async def perform_iv_measurement_voltage_sweep(source_meter: 'Keithley2400',
         source_meter.enable_source()
         source_meter.auto_output_off = False #keep output on during sweep
 
-        voltages = np.arange(start_voltage, stop_voltage + step_voltage, step_voltage).tolist()
+        voltages_up = np.arange(start_voltage, stop_voltage + step_voltage, step_voltage).tolist()
+        # Hysteresis: sweep back down to the start, reversing the up sweep.
+        voltages_down = voltages_up[-2::-1]
+        voltages = voltages_up + voltages_down
         average_currents = []
 
         for voltage in voltages:
@@ -192,7 +195,10 @@ async def perform_iv_measurement_current_sweep(source_meter: 'Keithley2400',
         source_meter.enable_source()
         source_meter.auto_output_off = False  # Keep output on during sweep
 
-        currents = np.arange(start_current, stop_current + step_current, step_current).tolist()
+        currents_up = np.arange(start_current, stop_current + step_current, step_current).tolist()
+        # Hysteresis: sweep back down to the start, reversing the up sweep.
+        currents_down = currents_up[-2::-1]
+        currents = currents_up + currents_down
         average_voltages = []
 
         for current in currents:

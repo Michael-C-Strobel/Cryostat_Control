@@ -1,1 +1,5 @@
-keithley_2400_backend/venv/
+**/__pycache__/
+**/venv/
+*.backup
+*.bak
+*.log

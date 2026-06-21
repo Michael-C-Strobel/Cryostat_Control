@@ -1,7 +1,5 @@
 import dash
 from dash import dcc, html
-from dash_extensions import WebSocket
-import asyncio
 import json
 import dash_bootstrap_components as dbc
 from dash.dependencies import Input, Output, State
@@ -11,6 +9,8 @@ import pandas as pd
 from dash import dash_table
 from dash_extensions.enrich import DashProxy, BlockingCallbackTransform
 import time
+import threading
+import requests
 
 # IV Curve bits
 from addons.iv_curve_callbacks import register_callbacks as register_iv_curve_callbacks
@@ -18,6 +18,59 @@ from addons.iv_curve import IV_CURVE_CARD
 
 # logging.basicConfig(level=logging.INFO)
 logging.basicConfig(level=logging.DEBUG)
+
+# -----------------------------------------------------------------------------
+# Server-side bridge to cryostat-backend
+# -----------------------------------------------------------------------------
+# The frontend talks to the backend inside the Docker network via REST.
+# The user's browser only needs access to the Dash UI on port 8050.
+# -----------------------------------------------------------------------------
+
+BACKEND_HTTP_URL = "http://cryostat-backend:8000"
+LATEST_BACKEND_MESSAGE = None
+_BACKEND_LOCK = threading.Lock()
+
+# Reduce library debug noise in the container logs.
+logging.getLogger("urllib3").setLevel(logging.WARNING)
+
+
+def _backend_status_polling_thread():
+    """Poll the backend /status endpoint and store the latest message."""
+    global LATEST_BACKEND_MESSAGE
+    url = f"{BACKEND_HTTP_URL}/status"
+    last_error_time = 0
+    error_log_interval_sec = 5
+    while True:
+        try:
+            response = requests.get(url, timeout=5)
+            response.raise_for_status()
+            data = response.json()
+            with _BACKEND_LOCK:
+                LATEST_BACKEND_MESSAGE = data
+        except Exception as e:
+            now = time.time()
+            if now - last_error_time > error_log_interval_sec:
+                logging.error(f"Backend status poll error: {e}. Suppressing further errors for {error_log_interval_sec}s...")
+                last_error_time = now
+        time.sleep(0.25)
+
+
+# Start the background poller as soon as this module is imported.
+_backend_status_thread = threading.Thread(target=_backend_status_polling_thread, daemon=True)
+_backend_status_thread.start()
+
+
+def send_backend_command(endpoint: str, payload: dict):
+    """Send a command to a backend REST endpoint."""
+    url = f"{BACKEND_HTTP_URL}/{endpoint}"
+    try:
+        response = requests.post(url, json=payload, timeout=5)
+        response.raise_for_status()
+        return response.json()
+    except Exception as e:
+        logging.error(f"Error sending command to {url}: {e}")
+        return {"status": "Error", "detail": str(e)}
+
 
 # Initialize Dash app
 app = DashProxy(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP],
@@ -103,6 +156,7 @@ PARAMETERS = [
     ], className="mb-3"),
     dbc.Button("Set Parameters", id="set-parameters-button", color="primary", className="mt-2"),
     dbc.Button("Get Current Values", id="get-current-values-button", color="secondary", className="mt-2 me-2"),
+    dbc.Button("Reset to Defaults", id="reset-parameters-button", color="info", className="mt-2"),
 ]
 
 df = pd.DataFrame({
@@ -170,20 +224,6 @@ temperature_tolerance = html.Div([
     ], className="mb-3"),
 ])
 
-hold_time = html.Div([
-    dbc.Row([
-        dbc.Label("Hold Time", width=4),
-        dbc.Col(
-            dbc.Input(id="hold-time", type="number", placeholder="Enter Hold Time", value=60),
-            width=8,
-        ),
-        dbc.Tooltip(
-            "Time to hold at each setpoint while taking a measurement.",
-            target="hold-time",
-        ),
-    ], className="mb-3"),
-])
-
 sustain_on_end = html.Div([
     dbc.Row([
         dbc.Label("Sustain on End", width=4),
@@ -207,7 +247,6 @@ sustain_on_end = html.Div([
 editable_table_with_button = html.Div([
     html.H5("Temperature Schedule Options"),
     temperature_tolerance,
-    hold_time,
     sustain_on_end,
     editable_table,
     temperature_schedule_buttons
@@ -262,15 +301,12 @@ register_iv_curve_callbacks(app)
 
 # Layout with Two Columns
 app.layout = html.Div([
-    WebSocket(id="ws", url="ws://localhost:8000/ws", timeout=5_000),  # Initialize backend connection, 5 sec timeout
-    WebSocket(id="set-heater-state-ws", url="ws://localhost:8000/set-heater-state"),
-    WebSocket(id="start-temperature-schedule-ws", url="ws://localhost:8000/start-temperature-schedule"),
-    WebSocket(id="stop-temperature-schedule-ws", url="ws://localhost:8000/stop-temperature-schedule"),
-    WebSocket(id="heaters-off-ws", url="ws://localhost:8000/heaters-off"),
-    # Websocket to initialize connection
-    # WebSocket(id="source-meter-initialize-connection-ws", url="ws://localhost:8001/initialize"),
-    # # Websocket that lists for current status from source meter
-    # WebSocket(id="source-meter-status-ws", url="ws://localhost:8001/ws"),
+    # Hidden divs used as dummy outputs for command callbacks.
+    # Dash requires unique outputs, so each command callback gets its own.
+    html.Div(id="set-heater-state-status", style={"display": "none"}),
+    html.Div(id="start-schedule-status", style={"display": "none"}),
+    html.Div(id="stop-schedule-status", style={"display": "none"}),
+    html.Div(id="heaters-off-status", style={"display": "none"}),
     dcc.Interval(id='interval-component', interval=1000, n_intervals=0), # Update every second
     dcc.Store(id='temperature-history', data=[], storage_type='session'),  # Store historical temperature data  # TODO: Set to local for all
     dcc.Store(id='cryostat-state', data=dict(), storage_type='session'),  # Store current cryostat state
@@ -295,25 +331,27 @@ app.layout = html.Div([
     ], fluid=True)  # Allow container to be responsive
 ])
     
-# Dash callback to update UI when WebSocket message is received
+# Dash callback to update UI with the latest backend status
 @app.callback(
     Output("cryostat-state", "data"),
     Output("temperature-plot", "figure"),
     Output("temperature-history", "data"),
-    Input("interval-component", "n_intervals"),  # Avoids updating on every message
-    State("ws", "message"),
+    Input("interval-component", "n_intervals"),  # Poll every second
     State('temperature-history', 'data')  # Get historical data (temperature and time)
 )
-def update_status(n_intervals, message, temp_history):
-    """Update the status and plot using the WebSocket message data."""
+def update_status(n_intervals, temp_history):
+    """Update the status and plot using the latest backend status poll."""
+
+    global LATEST_BACKEND_MESSAGE
 
     if not temp_history:
         temp_history = []
 
-    if not message:
+    with _BACKEND_LOCK:
+        data = LATEST_BACKEND_MESSAGE
+
+    if not data:
         return {}, {}, temp_history
-   
-    data = json.loads(message["data"])
     heater_setup = data.get("heater_setup")
     temperature_data = data.get("temperature")
     heater_output_data = data.get("heater_output")
@@ -397,7 +435,7 @@ def update_status(n_intervals, message, temp_history):
     return curr_state, figure, temp_history  
 
 @app.callback(
-    Output("set-heater-state-ws", "send"),
+    Output("set-heater-state-status", "children"),
     Input("set-parameters-button", "n_clicks"),
     State("pid-gain", "value"),
     State("pid-integral", "value"),
@@ -418,8 +456,8 @@ def set_heater_state(n_clicks,
                     heater_range):
     """Send the heater state to the backend."""
     if n_clicks is None:
-        return {}
-    
+        return dash.no_update
+
     heater_params = {
         "pid_gain": pid_gain,
         "pid_integral": pid_integral,
@@ -429,9 +467,10 @@ def set_heater_state(n_clicks,
         "max_current": max_current,
         "heater_range": heater_range
     }
-    
+
     logging.debug(f"Sending heater state: {heater_params}")
-    return json.dumps(heater_params)
+    send_backend_command("set-heater-state", heater_params)
+    return f"Heater state sent at {datetime.now()}"  # dummy output for hidden div
 
 ### Listeners for dashboard fields ###
 @app.callback(
@@ -487,12 +526,12 @@ def update_heater_setup(n_intervals, curr_state):
     return f"Heater Setup: {heater_setup}"
 
 @app.callback(
-    Output("pid-gain", "value"),
-    Output("pid-integral", "value"),
-    Output("pid-ramp-rate", "value"),
-    Output("heater-resistance", "value"),
-    Output("max-current", "value"),
-    Output("heater-range", "value"),
+    Output("pid-gain", "value", allow_duplicate=True),
+    Output("pid-integral", "value", allow_duplicate=True),
+    Output("pid-ramp-rate", "value", allow_duplicate=True),
+    Output("heater-resistance", "value", allow_duplicate=True),
+    Output("max-current", "value", allow_duplicate=True),
+    Output("heater-range", "value", allow_duplicate=True),
     Input("get-current-values-button", "n_clicks"),
     State("cryostat-state", "data"),
     prevent_initial_call=False
@@ -510,24 +549,55 @@ def update_inputs(n_clicks, curr_state):
     pid_ramp_rate = pid_data.get("ramp_rate")
     heater_resistance = heater_setup.get("heater_resistance")
     max_current = heater_setup.get("max_current")
-    heater_range = curr_state.get("heater_range")
+    heater_range = curr_state.get("heater_range", {}).get("heater_range")
 
     return pid_gain, pid_integral, pid_ramp_rate, heater_resistance, max_current, heater_range
 
+@app.callback(
+    Output("pid-gain", "value", allow_duplicate=True),
+    Output("pid-integral", "value", allow_duplicate=True),
+    Output("pid-ramp-rate", "value", allow_duplicate=True),
+    Output("heater-resistance", "value", allow_duplicate=True),
+    Output("max-current", "value", allow_duplicate=True),
+    Output("heater-range", "value", allow_duplicate=True),
+    Input("reset-parameters-button", "n_clicks"),
+    prevent_initial_call=True
+)
+def reset_parameters(n_clicks):
+    """Reset parameter inputs to safe default values."""
+    if n_clicks is None:
+        return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
+    return 60, 25, 0, 2, 1, "off"
+
 ### Listerners for Temperature Scheduler
 @app.callback(
-    Output("start-temperature-schedule-ws", "send"),
+    Output("start-schedule-status", "children"),
     Input("run-button", "n_clicks"),
     State("editable-table", "data"),
     State("temperature-tolerance", "value"),
-    State("hold-time", "value"),
     State("sustain-on-end", "value"),
+    State("iv-curve-type", "value"),
+    State("sourcemeter-voltage-lower", "value"),
+    State("sourcemeter-voltage-upper", "value"),
+    State("sourcemeter-voltage-step", "value"),
+    State("sourcemeter-compliance-current", "value"),
+    State("sourcemeter-voltage-range", "value"),
+    State("sourcemeter-current-lower", "value"),
+    State("sourcemeter-current-upper", "value"),
+    State("sourcemeter-current-step", "value"),
+    State("sourcemeter-compliance-voltage", "value"),
+    State("sourcemeter-current-range", "value"),
     prevent_initial_call=True
 )
-def start_temperature_schedule(n_clicks, table_data, temperature_tolerance, hold_time, sustain_on_end):
+def start_temperature_schedule(
+    n_clicks, table_data, temperature_tolerance, sustain_on_end,
+    sweep_type,
+    v_lb, v_ub, v_step, compliance_current, voltage_range,
+    c_lb, c_ub, c_step, compliance_voltage, current_range,
+):
     """Start the temperature schedule based on the table data."""
     if n_clicks is None:
-        return {}
+        return dash.no_update
 
     if not isinstance(temperature_tolerance, (int, float)):
         raise ValueError("temperature_tolerance must be a number")
@@ -539,13 +609,7 @@ def start_temperature_schedule(n_clicks, table_data, temperature_tolerance, hold
     try:
         setpoints = [float(row["Temp Value"]) for row in table_data if row["Temp Value"]]
     except ValueError:
-        raise ValueError("All setpoints must be valid numbers") 
-
-    try:
-        hold_time = float(hold_time)
-    except ValueError:
-        raise ValueError("Hold time must be a valid number")
-
+        raise ValueError("All setpoints must be valid numbers")
 
     threshold = temperature_tolerance
 
@@ -553,42 +617,58 @@ def start_temperature_schedule(n_clicks, table_data, temperature_tolerance, hold
         "setpoints": setpoints,
         "threshold": threshold,
         "sustain": sustain_on_end,
-        "hold_time": hold_time,
-        "_nonce": time.time(),  # add a changing value to force a new send
     }
 
-    logging.info(f"Starting temperature schedule with data: {schedule_data}")
+    if sweep_type in ("voltage_sweep", "current_sweep"):
+        if sweep_type == "voltage_sweep":
+            schedule_data["iv_curve_params"] = {
+                "sweep_type": "voltage_sweep",
+                "voltage_lower": v_lb,
+                "voltage_upper": v_ub,
+                "voltage_step": v_step,
+                "compliance_current": compliance_current,
+                "voltage_range": voltage_range,
+            }
+        else:
+            schedule_data["iv_curve_params"] = {
+                "sweep_type": "current_sweep",
+                "current_lower": c_lb,
+                "current_upper": c_ub,
+                "current_step": c_step,
+                "compliance_voltage": compliance_voltage,
+                "current_range": current_range,
+            }
 
-    return json.dumps(schedule_data)
+    logging.info(f"Starting temperature schedule with data: {schedule_data}")
+    send_backend_command("start-temperature-schedule", schedule_data)
+    return f"Temperature schedule started at {datetime.now()}"  # dummy output for hidden div
 
 @app.callback(
-    Output("stop-temperature-schedule-ws", "send"),
+    Output("stop-schedule-status", "children"),
     Input("stop-button", "n_clicks"),
     prevent_initial_call=True
 )
 def stop_temperature_schedule(n_clicks):
     """Stop the temperature schedule."""
     if n_clicks is None:
-        return {}
-    
-    return json.dumps({"command": "stop_temperature_schedule"})
+        return dash.no_update
+
+    send_backend_command("stop-temperature-schedule", {"command": "stop_temperature_schedule"})
+    return f"Temperature schedule stopped at {datetime.now()}"  # dummy output for hidden div
 
 ### Emergency Stop ###
 @app.callback(
-    Output("heaters-off-ws", "send"),
+    Output("heaters-off-status", "children"),
     Input("heater-off-button", "n_clicks"),
     prevent_initial_call=True
 )
 def turn_off_heaters(n_clicks):
     """Turn off all heaters."""
     if n_clicks is None:
-        return {}
-    
-    heater_off_command = {
-        "command": "turn_off_heaters"
-    }
-    
-    return json.dumps(heater_off_command)
+        return dash.no_update
+
+    send_backend_command("heaters-off", {"command": "turn_off_heaters"})
+    return f"Heaters off command sent at {datetime.now()}"  # dummy output for hidden div
 
 # Run the app
 if __name__ == "__main__":

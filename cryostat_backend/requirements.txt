@@ -4,3 +4,5 @@ plotly
 lakeshore
 fastapi
 uvicorn[standard]  # Make sure uvicorn is listed here
+celery
+redis

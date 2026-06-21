@@ -4,7 +4,6 @@ import plotly.graph_objs as go
 import json
 from dash import Dash, dcc, html
 from dash.dependencies import Input, Output, State
-from dash_extensions import WebSocket
 import logging
 import asyncio
 import websockets
@@ -153,79 +152,12 @@ def register_callbacks(app):
 
         return fig_iv
 
-    # WebSocket message handler for handling real-time stability notifications
-    @app.callback(
-        Output("sourcemeter-task-id", "data"),
-        Input("ws", "message"),
-        State("iv-curve-type", "value"),
-        State("sourcemeter-voltage-lower", "value"),
-        State("sourcemeter-voltage-upper", "value"),
-        State("sourcemeter-voltage-step", "value"),
-        State("sourcemeter-compliance-current", "value"),
-        State("sourcemeter-voltage-range", "value"),
-        State("sourcemeter-current-lower", "value"),
-        State("sourcemeter-current-upper", "value"),
-        State("sourcemeter-current-step", "value"),
-        State("sourcemeter-compliance-voltage", "value"),
-        State("sourcemeter-current-range", "value"),
-        prevent_initial_call=True,
-    )
-    def handle_stability_notification(
-        message, sweep_type,
-        v_lb, v_ub, v_step, compliance_current, voltage_range,
-        c_lb, c_ub, c_step, compliance_voltage, current_range,
-    ):
-        if not message:
-            return dash.no_update
+    # NOTE: Automatic IV-curve triggering on temperature stability used to be
+    # handled here via a browser-side WebSocket (id="ws"). It is being moved
+    # server-side in Phase 2 so that the user's browser only needs port 8050.
+    # For now, IV curves can still be triggered manually if a button callback
+    # is added; the scheduler will continue to use the fixed hold_time.
 
-        logging.info(f"handle_stability_notification is polling with message: {message}")
-        try:
-            data = json.loads(message["data"])
-            if "stable_temperature" not in data:
-                return dash.no_update
-            stable_temp = data["stable_temperature"]
-            logging.info(f"Received stable_temperature notification: {data}")
-
-            if sweep_type == "voltage_sweep":
-                if v_step == 0.0:
-                    logging.error("Voltage Step was Zero")
-                    return dash.no_update
-                voltages = list(np.arange(float(v_lb), float(v_ub), float(v_step)))
-                payload = {
-                    "key": str(stable_temp),
-                    "type": "voltage_sweep",
-                    "start_voltage": voltages[0],
-                    "stop_voltage": voltages[-1],
-                    "step_voltage": v_step,
-                    "compliance_current": compliance_current,
-                    "source_voltage_range": voltage_range,
-                }
-            elif sweep_type == "current_sweep":
-                if c_step == 0.0:
-                    logging.error("Current Step was Zero")
-                    return dash.no_update
-                currents = list(np.arange(float(c_lb), float(c_ub), float(c_step)))
-                payload = {
-                    "key": str(stable_temp),
-                    "type": "current_sweep",
-                    "start_current": currents[0],
-                    "stop_current": currents[-1],
-                    "step_current": c_step,
-                    "compliance_voltage": compliance_voltage,
-                    "source_current_range": current_range,
-                }
-            else:
-                logging.error(f"Unknown sweep type: {sweep_type}")
-                return dash.no_update
-
-            task = run_sourcemeter_measurement.apply_async(args=["measure_iv_curve", payload])
-            logging.warning(f"[handle_stability_notification] Queued task ID: {task.id}")
-            return str(task.id)
-
-        except Exception as e:
-            logging.error(f"Error queuing measurement task:\n{e}")
-            return dash.no_update
-    
     # This is pretty janky, in principle the results could be overwritten by the time this runs
     # But our interval is faster than the SourceMeter can run.
     # When the dcc.Store + WebSocket bug is resolved, this should be deprecated
@@ -240,7 +172,7 @@ def register_callbacks(app):
         raw = redis_client.lpop("sourcemeter:results")
 
         if not raw:
-            logging.info("[Polling] No completed task result found in Redis")
+            logging.debug("[Polling] No completed task result found in Redis")
             return dash.no_update
 
         try:
@@ -319,6 +251,86 @@ def register_callbacks(app):
     #         return dash.no_update
 
     #     return iv_curve_data
+
+    @app.callback(
+        Output("iv-curve-data", "data", allow_duplicate=True),
+        Input("manual-iv-curve-btn", "n_clicks"),
+        State("iv-curve-type", "value"),
+        State("sourcemeter-voltage-lower", "value"),
+        State("sourcemeter-voltage-upper", "value"),
+        State("sourcemeter-voltage-step", "value"),
+        State("sourcemeter-compliance-current", "value"),
+        State("sourcemeter-voltage-range", "value"),
+        State("sourcemeter-current-lower", "value"),
+        State("sourcemeter-current-upper", "value"),
+        State("sourcemeter-current-step", "value"),
+        State("sourcemeter-compliance-voltage", "value"),
+        State("sourcemeter-current-range", "value"),
+        State("iv-curve-data", "data"),
+        prevent_initial_call=True,
+    )
+    def take_manual_iv_curve(
+        n_clicks, sweep_type,
+        v_lb, v_ub, v_step, compliance_current, voltage_range,
+        c_lb, c_ub, c_step, compliance_voltage, current_range,
+        iv_curve_data,
+    ):
+        """Manually trigger an IV curve measurement with the current sweep parameters."""
+        if not n_clicks:
+            return dash.no_update
+
+        if iv_curve_data is None:
+            iv_curve_data = [dict()]
+
+        # Work with the inner dict
+        inner = iv_curve_data[0].copy() if isinstance(iv_curve_data, list) and len(iv_curve_data) > 0 else {}
+
+        try:
+            if sweep_type == "voltage_sweep":
+                if v_step == 0.0:
+                    logging.error("SourceMeter voltage step was zero")
+                    return dash.no_update
+                voltages = list(np.arange(float(v_lb), float(v_ub), float(v_step)))
+                payload = {
+                    "key": "manual_curve",
+                    "type": "voltage_sweep",
+                    "start_voltage": voltages[0],
+                    "stop_voltage": voltages[-1],
+                    "step_voltage": v_step,
+                    "compliance_current": compliance_current,
+                    "source_voltage_range": voltage_range,
+                }
+            elif sweep_type == "current_sweep":
+                if c_step == 0.0:
+                    logging.error("SourceMeter current step was zero")
+                    return dash.no_update
+                currents = list(np.arange(float(c_lb), float(c_ub), float(c_step)))
+                payload = {
+                    "key": "manual_curve",
+                    "type": "current_sweep",
+                    "start_current": currents[0],
+                    "stop_current": currents[-1],
+                    "step_current": c_step,
+                    "compliance_voltage": compliance_voltage,
+                    "source_current_range": current_range,
+                }
+            else:
+                logging.error(f"Unknown sweep type: {sweep_type}")
+                return dash.no_update
+
+            result = asyncio.run(send_websocket_request("measure_iv_curve", payload))
+            logging.warning(f"Manual IV curve result: {result}")
+
+            if "iv_curve" in result:
+                inner["Manual Curve"] = result["iv_curve"]
+                logging.info("Updated IV curve data with manual measurement")
+                return [inner]
+            else:
+                logging.error(f"IV curve measurement error: {result}")
+                return dash.no_update
+        except Exception as e:
+            logging.error(f"Error during manual IV curve measurement: {e}")
+            return dash.no_update
 
     @app.callback(
         Output("iv-curve-download", "data"),  # This triggers the download

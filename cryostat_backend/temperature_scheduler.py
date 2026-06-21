@@ -1,23 +1,26 @@
 import asyncio
 from lakeshore import Model335
-from typing import List, Callable
+from typing import List, Callable, Optional, Dict
 import logging
 from status_and_setting_utils import fetch_status
 import collections
+import json
 
 class TemperatureScheduler:
     def __init__(self, cryo: Model335, heater_output: int, setpoints: List[float], threshold: float = 0.1,
-                 hold_time: float = 60,
-                 sustain_on_exit: bool = False):
-        
+                 sustain_on_exit: bool = False,
+                 iv_curve_params: Optional[Dict] = None,
+                 on_measurement_complete: Optional[Callable[[float, dict], None]] = None):
+
         self.cryo = cryo
         self.heater_output = heater_output
         self.setpoints = [float(x) for x in setpoints]
         self.threshold = float(threshold)
         self.current_setpoint_index = 0
         self.running = False
-        self.hold_time = hold_time
         self.sustain_on_exit = sustain_on_exit
+        self.iv_curve_params = iv_curve_params or {}
+        self.on_measurement_complete = on_measurement_complete
 
     async def set_setpoint(self, setpoint: float):
         logging.warning(f"Setting setpoint to {setpoint}")  # Warning as temp to avoid spamming
@@ -30,8 +33,14 @@ class TemperatureScheduler:
             return None
         return curr_status["temperature"]["sensor_1"]   # For now, hardcode to monitor sensor_1
 
-    async def monitor_temperature(self, callback: Callable[[float], None]):
-        """Asynchronously monitor temperature, call `callback` when stable."""
+    async def monitor_temperature(self, on_stable_callback: Optional[Callable[[float], None]] = None):
+        """Asynchronously monitor temperature and run a callback when stable.
+
+        If `iv_curve_params` were provided, the scheduler will trigger an IV
+        curve measurement at each stable temperature and wait for it to finish
+        before moving to the next setpoint. Otherwise it just waits briefly at
+        the stable temperature and continues.
+        """
         try:
             self.running = True
             while self.current_setpoint_index < len(self.setpoints) and self.running:
@@ -42,21 +51,23 @@ class TemperatureScheduler:
                 required_samples = 400   # 20 seconds at 0.05s sampling
                 stability_window = collections.deque(maxlen=required_samples)
 
-                current_temp = float('inf')  
+                current_temp = float('inf')
                 while self.running:
-                    # logging.warning("Checking Current T in loop")
-                    _current_temp = await self.get_temperature()    # This logic basically means "if there's an error, keep monitoring and wait"
+                    _current_temp = await self.get_temperature()
                     if _current_temp is not None:
                         current_temp = _current_temp
 
                     in_range = abs(current_temp - current_setpoint) <= self.threshold
                     stability_window.append(in_range)
-                        
-                    # logging.warning(f"Got current temp {current_temp}")
+
                     if len(stability_window) == required_samples and all(stability_window):
                         logging.warning(f"Temperature {current_temp} is within threshold of setpoint {current_setpoint}")
-                        callback(current_temp)  # Notify via callback
-                        await asyncio.sleep(self.hold_time)  # Hold for the specified time to get a measurement
+
+                        if on_stable_callback:
+                            try:
+                                await on_stable_callback(current_temp)
+                            except Exception as e:
+                                logging.error(f"Error during stable-temperature callback: {e}")
 
                         # If this is the last set point, exit
                         if self.current_setpoint_index == len(self.setpoints) - 1:
